@@ -120,12 +120,12 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
           <div className="mt-8 pt-6 border-t border-gray-200">
             <p className="text-xs text-gray-500 text-center mb-3 font-medium">Testbenutzer:</p>
             <div className="space-y-2 text-xs text-gray-600">
-              <p><span className="font-medium">Mitarbeiter:</span> gio / gio</p>
-              <p className="ml-4">claudio / claudio</p>
-              <p className="ml-4">gerrik / gerrik</p>
-              <p className="ml-4">martin / martin</p>
-              <p className="mt-2"><span className="font-medium">Admin:</span> cristian / cristian</p>
-              <p className="ml-4">debby / debby</p>
+              <p><span className="font-medium">Mitarbeiter:</span> gio / gio123</p>
+              <p className="ml-4">claudio / claudio123</p>
+              <p className="ml-4">gerrik / gerrik123</p>
+              <p className="ml-4">martin / martin123</p>
+              <p className="mt-2"><span className="font-medium">Admin:</span> cristian / cristian123</p>
+              <p className="ml-4">debby / debby123</p>
             </div>
           </div>
         </div>

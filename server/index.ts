@@ -10,27 +10,13 @@ import { createExpressMiddleware } from "@trpc/server/adapters/express";
 
 import { appRouter } from "./routers";
 import { createContext } from "./_core/context";
+import { authenticateUser, createSessionToken } from "./auth";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { getSessionCookieOptions } from "./_core/cookies";
+import * as db from "./db";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-// User credentials database (temporary, in-memory)
-const users = [
-  // Mitarbeiter (user)
-  { id: 1, username: 'gio', password: 'gio', role: 'user' },
-  { id: 2, username: 'claudio', password: 'claudio', role: 'user' },
-  { id: 3, username: 'gerrik', password: 'gerrik', role: 'user' },
-  { id: 4, username: 'martin', password: 'martin', role: 'user' },
-  // Admin (geschäftsleitung)
-  { id: 5, username: 'cristian', password: 'cristian', role: 'admin' },
-  { id: 6, username: 'debby', password: 'debby', role: 'admin' },
-];
-
-// Simple token generator (Base64 encoded)
-function generateToken(user: typeof users[0]): string {
-  const tokenData = { id: user.id, username: user.username, role: user.role };
-  return Buffer.from(JSON.stringify(tokenData)).toString('base64');
-}
 
 async function startServer() {
   const app = express();
@@ -64,48 +50,66 @@ async function startServer() {
      Auth Endpoints
   -------------------------- */
 
-  app.post("/api/auth/login", (req, res) => {
-    console.log('📝 Login attempt:', req.body);
+  app.post("/api/auth/login", async (req, res) => {
+    console.log('📝 Login attempt:', req.body?.username);
     const { username, password } = req.body;
 
-    // Find user
-    const user = users.find(u => u.username === username && u.password === password);
-    
-    if (!user) {
-      console.log('❌ User not found:', username);
-      return res.status(401).json({ error: 'Ungültige Anmeldedaten' });
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Username und Passwort erforderlich' });
     }
 
-    console.log('✅ User found:', user.username);
+    try {
+      const user = await authenticateUser(username, password);
+      
+      if (!user) {
+        console.log('❌ Invalid credentials:', username);
+        return res.status(401).json({ error: 'Ungültige Anmeldedaten' });
+      }
 
-    // Generate token
-    const token = generateToken(user);
+      console.log('✅ User authenticated:', user.username);
 
-    const response = {
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        role: user.role,
-      },
-    };
+      // Create JWT token
+      const token = await createSessionToken(user);
 
-    console.log('📤 Sending response:', response);
-    res.json(response);
+      // Set cookie
+      const cookieOptions = getSessionCookieOptions(req);
+      res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+
+      const response = {
+        token,
+        user: {
+          id: user.id,
+          username: user.username,
+          role: user.role,
+        },
+      };
+
+      console.log('📤 Login successful:', user.username);
+      res.json(response);
+    } catch (error) {
+      console.error('❌ Login error:', error);
+      res.status(500).json({ error: 'Anmeldung fehlgeschlagen' });
+    }
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    const cookieOptions = getSessionCookieOptions(req);
+    res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+    res.json({ success: true });
   });
 
   /* -------------------------
      User Endpoints
   -------------------------- */
 
-  app.get("/api/users", (_req, res) => {
-    // Return all users without passwords
-    const userList = users.map(u => ({
-      id: u.id,
-      username: u.username,
-      role: u.role
-    }));
-    res.json(userList);
+  app.get("/api/users", async (_req, res) => {
+    try {
+      const users = await db.getAllUsers();
+      res.json(users);
+    } catch (error) {
+      console.error('❌ Failed to get users:', error);
+      res.status(500).json({ error: 'Failed to get users' });
+    }
   });
 
   /* -------------------------

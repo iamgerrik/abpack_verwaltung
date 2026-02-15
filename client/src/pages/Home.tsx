@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
-import { AlertCircle, Package, CheckCircle, Clock, Plus, Trash2, TrendingUp, LogOut } from 'lucide-react';
+import { AlertCircle, Package, CheckCircle, Clock, Plus, Trash2, TrendingUp, LogOut, BarChart3 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useLanguage } from '../contexts/LanguageContext';
-import { LanguageSwitcher } from '../components/LanguageSwitcher';
 import { trpc } from '../lib/trpc';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -33,6 +31,7 @@ interface Order {
   neededAmount: number;
   status: string;
   createdAt: string;
+  updatedAt?: string;  // Zeitpunkt der letzten Statusänderung
   createdTimestamp?: number;
   remainder?: number;
   createdByName?: string;  // Username der Person, die den Auftrag erstellt hat
@@ -53,7 +52,6 @@ interface Wareneingang {
 
 const AbpackVerwaltung = () => {
   const { user, logout } = useAuth();
-  const { t } = useLanguage();
   const queryClient = useQueryClient();
   const [users, setUsers] = useState<Array<{id: number; username: string; role: string}>>([]);
   
@@ -233,6 +231,12 @@ const AbpackVerwaltung = () => {
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'offen' | 'in_bearbeitung' | 'fertig'>('all');
   const [orderSearch, setOrderSearch] = useState<string>('');
   const [orderDateRange, setOrderDateRange] = useState<'all' | 'today' | '7d' | '30d'>('all');
+  
+  // Analyse-Filter
+  const [analyseZeitraum, setAnalyseZeitraum] = useState<'heute' | '7d' | '30d' | '90d' | '365d' | 'all'>('30d');
+  const [analyseKategorie, setAnalyseKategorie] = useState<string>('all');
+  const [analyseMitarbeiter, setAnalyseMitarbeiter] = useState<string>('all');
+  
   const [newOrder, setNewOrder] = useState<{
     strain: string;
     packagingType: string;
@@ -516,11 +520,32 @@ const AbpackVerwaltung = () => {
     }
   };
 
-  // Statistiken
+  // Hilfsfunktion: Prüft ob ein Datum heute ist
+  const isToday = (dateStr: string): boolean => {
+    const date = new Date(dateStr);
+    const today = new Date();
+    return date.getDate() === today.getDate() &&
+           date.getMonth() === today.getMonth() &&
+           date.getFullYear() === today.getFullYear();
+  };
+
+  // Filter: Fertige Aufträge nur anzeigen wenn heute abgeschlossen
+  // Offene und In Bearbeitung werden immer angezeigt
+  const visibleOrders = orders.filter((o: Order) => {
+    if (o.status !== 'fertig') return true; // nicht-fertige immer zeigen
+    // Fertige nur wenn heute abgeschlossen (updatedAt = heute)
+    if (o.updatedAt) {
+      return isToday(o.updatedAt);
+    }
+    // Fallback auf createdAt wenn kein updatedAt
+    return isToday(o.createdAt);
+  });
+
+  // Statistiken (basierend auf sichtbaren Aufträgen)
   const stats = {
-    offeneAuftraege: orders.filter((o: Order) => o.status === 'offen').length,
-    inBearbeitung: orders.filter((o: Order) => o.status === 'in_bearbeitung').length,
-    fertig: orders.filter((o: Order) => o.status === 'fertig').length,
+    offeneAuftraege: visibleOrders.filter((o: Order) => o.status === 'offen').length,
+    inBearbeitung: visibleOrders.filter((o: Order) => o.status === 'in_bearbeitung').length,
+    fertig: visibleOrders.filter((o: Order) => o.status === 'fertig').length,
     niedrigerBestand: stock.filter((s: StockItem) => s.category !== 'andere' && (getStockStatus(s) === 'low' || getStockStatus(s) === 'empty')).length
   };
 
@@ -535,7 +560,65 @@ const AbpackVerwaltung = () => {
     andere: 'Andere'
   };
 
-  const filteredOrders = orders
+  // Display-Kategorien für gruppierte Kartenansicht
+  const displayCategoryOrder = [
+    'blueten',
+    'moonrocks',
+    'smallbuds',
+    'trim',
+    'herbal',
+    'filter',
+    'crumble',
+    'hash',
+    'superdry',
+    'extracts',
+    'andere'
+  ];
+
+  const displayCategoryLabels: { [key: string]: string } = {
+    blueten: 'Blüten',
+    moonrocks: 'Moonrocks',
+    smallbuds: 'Small Buds',
+    trim: 'Trim',
+    herbal: 'Herbal',
+    filter: 'Filter',
+    crumble: 'Crumble',
+    hash: 'Hash',
+    superdry: 'Superdry',
+    extracts: 'Extracts',
+    andere: 'Sonstige'
+  };
+
+  // Funktion zur Bestimmung der Display-Kategorie basierend auf Name/DB-Kategorie
+  const getDisplayCategory = (item: StockItem): string => {
+    const nameLower = item.name.toLowerCase();
+    
+    // Name-basierte Zuordnung (hat Priorität)
+    if (nameLower.includes('herbal')) return 'herbal';
+    if (nameLower.includes('filter')) return 'filter';
+    if (nameLower.includes('crumble')) return 'crumble';
+    if (nameLower.includes('superdry') || nameLower.startsWith('sd ') || nameLower === 'sd') return 'superdry';
+    
+    // DB-Kategorie basierte Zuordnung
+    if (item.category === 'blueten') return 'blueten';
+    if (item.category === 'moonrocks') return 'moonrocks';
+    if (item.category === 'smallbuds') return 'smallbuds';
+    if (item.category === 'trim') return 'trim';
+    if (item.category === 'hash') return 'hash';
+    if (item.category === 'extracts') return 'extracts';
+    
+    return 'andere';
+  };
+
+  // Gruppiere Stock nach Display-Kategorien
+  const groupedStock = stock.reduce((acc: { [key: string]: StockItem[] }, item: StockItem) => {
+    const displayCat = getDisplayCategory(item);
+    if (!acc[displayCat]) acc[displayCat] = [];
+    acc[displayCat].push(item);
+    return acc;
+  }, {});
+
+  const filteredOrders = visibleOrders
     .filter((o) => (orderStatusFilter === 'all' ? true : o.status === orderStatusFilter))
     .filter((o) => {
       if (orderDateRange === 'all') return true;
@@ -557,34 +640,62 @@ const AbpackVerwaltung = () => {
       return ts >= start;
     });
 
-  const exportOrders = (format: 'csv' | 'xlsx') => {
+  // Export-Funktion: Alle Aufträge aus DB (nicht nur gefilterte/sichtbare)
+  const exportOrders = (format: 'csv' | 'xlsx', exportZeitraum: 'heute' | '7d' | '30d' | '90d' | 'all' = '7d') => {
     const delimiter = format === 'csv' ? ';' : '\t';
+    
+    // Zeitraum-Filter für Export
+    const exportCutoff = (() => {
+      if (exportZeitraum === 'all') return 0;
+      if (exportZeitraum === 'heute') {
+        const heute = new Date();
+        heute.setHours(0, 0, 0, 0);
+        return heute.getTime();
+      }
+      const tage = exportZeitraum === '7d' ? 7 : exportZeitraum === '30d' ? 30 : 90;
+      return Date.now() - tage * 24 * 60 * 60 * 1000;
+    })();
+    
+    // ALLE Aufträge aus DB filtern (nicht nur sichtbare)
+    const exportAuftraege = orders.filter((o: Order) => {
+      const ts = o.createdTimestamp ?? Date.parse(o.createdAt);
+      return exportCutoff === 0 || ts >= exportCutoff;
+    });
+    
     const headers = [
       'ID',
       'Kategorie',
       'Sorte',
+      'Verpackungstyp',
       'Verpackungen',
+      'Benötigte Menge (g)',
       'Status',
-      'Auftraggeber',
-      'Bearbeiter',
-      'Restmenge',
-      'Erstellt am'
+      'Erstellt von',
+      'Bearbeitet von',
+      'Restmenge (g)',
+      'Restmenge eingegeben',
+      'Erstellt am',
+      'Geändert am'
     ];
 
-    const rows = filteredOrders.map((o) => {
+    const rows = exportAuftraege.map((o: Order) => {
       const pkgSummary = o.packages
-        .map((p) => `${p.quantity}x ${p.size}g ${p.packagingType || ''}`.trim())
+        .map((p: OrderPackage) => `${p.quantity}x ${p.size}g ${p.packagingType || ''}`.trim())
         .join(' | ');
       return [
         o.id,
         categoryNames[o.categoryName] || o.categoryName,
         o.strainName,
+        o.packagingType,
         pkgSummary,
-        o.status,
-        o.createdBy || '',
-        o.assignedTo || '',
-        o.remainder ?? '',
-        o.createdAt
+        o.neededAmount,
+        o.status === 'offen' ? 'Offen' : o.status === 'in_bearbeitung' ? 'In Bearbeitung' : 'Fertig',
+        o.createdByName || '-',
+        o.processedByName || '-',
+        o.remainder ?? '-',
+        o.remainder !== undefined && o.remainder !== null ? 'Ja' : 'Nein',
+        o.createdAt,
+        o.updatedAt || '-'
       ];
     });
 
@@ -600,7 +711,11 @@ const AbpackVerwaltung = () => {
       .map((row) => row.map((cell) => escapeCell(cell)).join(delimiter))
       .join('\n');
 
-    const blob = new Blob([content], {
+    // Dateiname mit Zeitraum
+    const zeitraumLabel = exportZeitraum === 'heute' ? 'heute' : exportZeitraum === '7d' ? '7tage' : exportZeitraum === '30d' ? '30tage' : exportZeitraum === '90d' ? '90tage' : 'alle';
+    const datumStr = new Date().toISOString().split('T')[0];
+    
+    const blob = new Blob(['\uFEFF' + content], { // BOM für Excel UTF-8
       type:
         format === 'csv'
           ? 'text/csv;charset=utf-8;'
@@ -609,7 +724,7 @@ const AbpackVerwaltung = () => {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `auftraege_export.${format === 'csv' ? 'csv' : 'xls'}`;
+    link.download = `auftraege_${zeitraumLabel}_${datumStr}.${format === 'csv' ? 'csv' : 'xls'}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -624,19 +739,13 @@ const AbpackVerwaltung = () => {
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Abpack-Verwaltungssystem</h1>
             <p className="text-gray-600">Cannabis Inventory & Packaging Management</p>
           </div>
-          <div className="text-right space-y-2">
-            <div className="flex items-center gap-4 justify-end">
-              <LanguageSwitcher />
-              <button
-                onClick={handleLogout}
-                className="w-10 h-10 flex items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 border border-transparent transition"
-                aria-label={t('header.logout')}
-              >
-                <LogOut size={18} />
-              </button>
-            </div>
-            <p className="text-sm text-gray-600">{t('header.user')}: <span className="font-medium text-gray-900">{user?.username}</span></p>
-          </div>
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-100 text-red-700 hover:bg-red-200 border border-red-200 transition text-sm"
+          >
+            <LogOut size={16} />
+            logout {user?.username}
+          </button>
         </div>
 
         {/* Navigation */}
@@ -649,7 +758,7 @@ const AbpackVerwaltung = () => {
                 : 'bg-white text-gray-700 hover:bg-gray-100'
             }`}
           >
-            {t('tabs.dashboard')}
+            Dashboard
           </button>
           <button
             onClick={() => setActiveTab('wareneingang')}
@@ -690,6 +799,16 @@ const AbpackVerwaltung = () => {
             }`}
           >
             Bestand
+          </button>
+          <button
+            onClick={() => setActiveTab('analyse')}
+            className={`px-4 py-2 rounded-lg font-medium ${
+              activeTab === 'analyse'
+                ? 'bg-blue-600 text-white'
+                : 'bg-white text-gray-700 hover:bg-gray-100'
+            }`}
+          >
+            <span className="flex items-center gap-2"><BarChart3 size={16} /> Analyse</span>
           </button>
         </div>
 
@@ -738,11 +857,11 @@ const AbpackVerwaltung = () => {
             {/* Aktuelle Aufträge */}
             <div className="bg-white rounded-lg shadow p-6 mb-6">
               <h2 className="text-xl font-bold mb-4">Aktuelle Aufträge</h2>
-              {orders.filter((o: Order) => o.status !== 'fertig').length === 0 ? (
+              {visibleOrders.filter((o: Order) => o.status !== 'fertig').length === 0 ? (
                 <p className="text-gray-500">Keine aktiven Aufträge</p>
               ) : (
                 <div className="space-y-3">
-                  {orders.filter((o: Order) => o.status !== 'fertig').map((order: Order) => (
+                  {visibleOrders.filter((o: Order) => o.status !== 'fertig').map((order: Order) => (
                     <div key={order.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                       <div className="flex-1">
                         <p className="font-medium">{order.strainName}</p>
@@ -959,162 +1078,189 @@ const AbpackVerwaltung = () => {
 
         {/* Neuer Auftrag */}
         {activeTab === 'newOrder' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-bold mb-6">Neuen Auftrag erstellen</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Kategorie
-                </label>
-                <select
-                  value={newOrder.category}
-                  onChange={(e) => setNewOrder({ ...newOrder, category: e.target.value, strain: '' })}
-                  className="w-full p-2 border border-gray-300 rounded-lg"
-                >
-                  <option value="blueten">Blüten</option>
-                  <option value="smallbuds">Small Buds</option>
-                  <option value="hash">Hash</option>
-                  <option value="extracts">Extracts</option>
-                  <option value="moonrocks">Moonrocks</option>
-                  <option value="andere">Andere</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Sorte auswählen
-                </label>
-                <select
-                  value={newOrder.strain}
-                  onChange={(e) => setNewOrder({ ...newOrder, strain: e.target.value })}
-                  className="w-full p-2 border border-gray-300 rounded-lg"
-                >
-                  <option value="">-- Bitte wählen --</option>
-                  {getAvailableStrains(newOrder.category).filter((s: StockItem) => s.menge > 0).map((s: StockItem) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} {s.hersteller ? `- ${s.hersteller}` : ''} (Verfügbar: {s.menge}g)
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Verpackungstyp
-                </label>
-                <div className="flex gap-4">
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      value="glas"
-                      checked={newOrder.packagingType === 'glas'}
-                      onChange={(e) => {
-                        setNewOrder({ ...newOrder, packagingType: e.target.value });
-                        setTempPackage({ ...tempPackage, size: 1, customSize: '' });
-                      }}
-                      className="mr-2"
-                    />
-                    Glas
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Formular - Links */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h2 className="text-xl font-bold mb-6">Neuen Auftrag erstellen</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Kategorie
                   </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      value="bag"
-                      checked={newOrder.packagingType === 'bag'}
-                      onChange={(e) => {
-                        setNewOrder({ ...newOrder, packagingType: e.target.value });
-                        setTempPackage({ ...tempPackage, size: 1, customSize: '' });
-                      }}
-                      className="mr-2"
-                    />
-                    Bag
-                  </label>
-                </div>
-              </div>
-
-              {/* Verpackungen hinzufügen */}
-              <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50">
-                <h3 className="font-medium text-gray-900 mb-3">Verpackung hinzufügen</h3>
-                
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Größe wählen oder Custom eingeben
-                    </label>
-                    <div className="flex gap-2 flex-wrap mb-3">
-                      {(packagingSizes[newOrder.packagingType] as number[]).map((size: number) => (
-                        <button
-                          key={size}
-                          type="button"
-                          onClick={() => setTempPackage({ ...tempPackage, size: size, customSize: '' })}
-                          className={`px-4 py-2 rounded-lg border ${
-                            tempPackage.size === size && !tempPackage.customSize
-                              ? 'bg-blue-600 text-white border-blue-600'
-                              : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
-                          }`}
-                        >
-                          {size}g
-                        </button>
-                      ))}
-                    </div>
-                    <input
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value={tempPackage.customSize}
-                      onChange={(e) => setTempPackage({ ...tempPackage, customSize: e.target.value })}
-                      className="w-full p-2 border border-gray-300 rounded-lg"
-                      placeholder="Custom Größe in g (z.B. 3.5)"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Anzahl Stück
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={tempPackage.quantity}
-                      onChange={(e) => setTempPackage({ ...tempPackage, quantity: e.target.value })}
-                      className="w-full p-2 border border-gray-300 rounded-lg"
-                      placeholder="z.B. 10"
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={addPackage}
-                    className="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 flex items-center justify-center gap-2"
+                  <select
+                    value={newOrder.category}
+                    onChange={(e) => setNewOrder({ ...newOrder, category: e.target.value, strain: '' })}
+                    className="w-full p-2 border border-gray-300 rounded-lg"
                   >
-                    <Plus size={18} />
-                    Verpackung hinzufügen ({tempPackage.customSize || tempPackage.size}g x {tempPackage.quantity})
-                  </button>
+                    <option value="blueten">Blüten</option>
+                    <option value="smallbuds">Small Buds</option>
+                    <option value="hash">Hash</option>
+                    <option value="extracts">Extracts</option>
+                    <option value="moonrocks">Moonrocks</option>
+                    <option value="andere">Andere</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Sorte auswählen
+                  </label>
+                  <select
+                    value={newOrder.strain}
+                    onChange={(e) => setNewOrder({ ...newOrder, strain: e.target.value })}
+                    className="w-full p-2 border border-gray-300 rounded-lg"
+                  >
+                    <option value="">-- Bitte wählen --</option>
+                    {getAvailableStrains(newOrder.category).map((s: StockItem) => (
+                      <option key={s.id} value={s.id} disabled={s.menge <= 0}>
+                        {s.name} {s.hersteller ? `- ${s.hersteller}` : ''} (Verfügbar: {s.menge}g){s.menge <= 0 ? ' ⚠️' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Verpackungstyp
+                  </label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        value="glas"
+                        checked={newOrder.packagingType === 'glas'}
+                        onChange={(e) => {
+                          setNewOrder({ ...newOrder, packagingType: e.target.value });
+                          setTempPackage({ ...tempPackage, size: 1, customSize: '' });
+                        }}
+                        className="mr-2"
+                      />
+                      Glas
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        value="bag"
+                        checked={newOrder.packagingType === 'bag'}
+                        onChange={(e) => {
+                          setNewOrder({ ...newOrder, packagingType: e.target.value });
+                          setTempPackage({ ...tempPackage, size: 1, customSize: '' });
+                        }}
+                        className="mr-2"
+                      />
+                      Bag
+                    </label>
+                  </div>
+                </div>
+
+                {/* Verpackungen hinzufügen */}
+                <div className="border-2 border-blue-200 rounded-lg p-4 bg-blue-50">
+                  <h3 className="font-medium text-gray-900 mb-3">Verpackung hinzufügen</h3>
+                  
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Größe wählen oder Custom eingeben
+                      </label>
+                      <div className="flex gap-2 flex-wrap mb-3">
+                        {(packagingSizes[newOrder.packagingType] as number[]).map((size: number) => (
+                          <button
+                            key={size}
+                            type="button"
+                            onClick={() => setTempPackage({ ...tempPackage, size: size, customSize: '' })}
+                            className={`px-4 py-2 rounded-lg border ${
+                              tempPackage.size === size && !tempPackage.customSize
+                                ? 'bg-blue-600 text-white border-blue-600'
+                                : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                            }`}
+                          >
+                            {size}g
+                          </button>
+                        ))}
+                      </div>
+                      <input
+                        type="number"
+                        min="0.1"
+                        step="0.1"
+                        value={tempPackage.customSize}
+                        onChange={(e) => setTempPackage({ ...tempPackage, customSize: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded-lg"
+                        placeholder="Custom Größe in g (z.B. 3.5)"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Anzahl Stück
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={tempPackage.quantity}
+                        onChange={(e) => setTempPackage({ ...tempPackage, quantity: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded-lg"
+                        placeholder="z.B. 10"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={addPackage}
+                      className="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 flex items-center justify-center gap-2"
+                    >
+                      <Plus size={18} />
+                      Verpackung hinzufügen ({tempPackage.customSize || tempPackage.size}g x {tempPackage.quantity})
+                    </button>
+                  </div>
                 </div>
               </div>
+            </div>
+
+            {/* Übersicht - Rechts */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <h2 className="text-xl font-bold mb-6">Auftragsübersicht</h2>
+              
+              {/* Ausgewählte Sorte */}
+              {newOrder.strain && (
+                <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <p className="text-sm text-gray-600">Ausgewählte Sorte:</p>
+                  <p className="font-bold text-lg">{stock.find(s => s.id === newOrder.strain)?.name || '-'}</p>
+                  <p className="text-sm text-gray-500">
+                    Verfügbar: {stock.find(s => s.id === newOrder.strain)?.menge || 0}g
+                  </p>
+                </div>
+              )}
 
               {/* Liste der hinzugefügten Verpackungen */}
-              {newOrder.packages.length > 0 && (
-                <div className="border-2 border-green-200 rounded-lg p-4 bg-green-50">
-                  <h3 className="font-medium text-gray-900 mb-3">Ausgewählte Verpackungen</h3>
-                  <div className="space-y-2">
-                    {newOrder.packages.map((pkg: OrderPackage, index: number) => (
-                      <div key={index} className="flex items-center justify-between bg-white p-3 rounded-lg">
-                        <div>
-                          <span className="font-medium">{pkg.quantity}x {pkg.size}g {(pkg.packagingType || newOrder.packagingType)}</span>
-                          {pkg.isCustom && <span className="ml-2 text-xs text-blue-600">(Custom)</span>}
-                          <p className="text-xs text-gray-500">
-                            Benötigt: {calculateNeededAmount(pkg.size, pkg.quantity)}g
-                          </p>
+              {newOrder.packages.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Package className="mx-auto mb-2 opacity-50" size={48} />
+                  <p>Noch keine Verpackungen hinzugefügt</p>
+                  <p className="text-sm">Füge links Verpackungen hinzu</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="border-2 border-green-200 rounded-lg p-4 bg-green-50">
+                    <h3 className="font-medium text-gray-900 mb-3">Ausgewählte Verpackungen</h3>
+                    <div className="space-y-2 max-h-[300px] overflow-y-auto">
+                      {newOrder.packages.map((pkg: OrderPackage, index: number) => (
+                        <div key={index} className="flex items-center justify-between bg-white p-3 rounded-lg">
+                          <div>
+                            <span className="font-medium">{pkg.quantity}x {pkg.size}g {(pkg.packagingType || newOrder.packagingType)}</span>
+                            {pkg.isCustom && <span className="ml-2 text-xs text-blue-600">(Custom)</span>}
+                            <p className="text-xs text-gray-500">
+                              Benötigt: {calculateNeededAmount(pkg.size, pkg.quantity)}g
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => removePackage(index)}
+                            className="text-red-600 hover:text-red-800"
+                          >
+                            <Trash2 size={18} />
+                          </button>
                         </div>
-                        <button
-                          onClick={() => removePackage(index)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                     <div className="mt-3 pt-3 border-t border-green-300">
                       <p className="text-sm font-medium text-gray-900">
                         Gesamtmenge benötigt: {newOrder.packages.reduce((sum, pkg: OrderPackage) => 
@@ -1123,37 +1269,48 @@ const AbpackVerwaltung = () => {
                       </p>
                     </div>
                   </div>
+
+                  {newOrder.strain && (
+                    <div className="bg-blue-50 p-4 rounded-lg">
+                      <p className="text-sm text-blue-900">
+                        <strong>Gesamt benötigte Menge:</strong> {newOrder.packages.reduce((sum, pkg: OrderPackage) => 
+                          sum + calculateNeededAmount(pkg.size, pkg.quantity), 0
+                        )}g
+                      </p>
+                      <p className="text-sm text-blue-900 mt-1">
+                        <strong>Verfügbar:</strong> {
+                          stock.find(s => s.id === newOrder.strain)?.menge || 0
+                        }g
+                      </p>
+                      <p className={`text-sm mt-1 font-medium ${
+                        (stock.find(s => s.id === newOrder.strain)?.menge || 0) >= 
+                        newOrder.packages.reduce((sum, pkg: OrderPackage) => sum + calculateNeededAmount(pkg.size, pkg.quantity), 0)
+                          ? 'text-green-700'
+                          : 'text-red-700'
+                      }`}>
+                        {(stock.find(s => s.id === newOrder.strain)?.menge || 0) >= 
+                        newOrder.packages.reduce((sum, pkg: OrderPackage) => sum + calculateNeededAmount(pkg.size, pkg.quantity), 0)
+                          ? '✓ Ausreichend Bestand'
+                          : '⚠ Nicht genügend Bestand'}
+                      </p>
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={createOrder}
+                    disabled={newOrder.packages.length === 0 || !newOrder.strain}
+                    className={`w-full py-3 rounded-lg font-medium flex items-center justify-center gap-2 ${
+                      newOrder.packages.length === 0 || !newOrder.strain
+                        ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
+                        : 'bg-green-600 text-white hover:bg-green-700'
+                    }`}
+                  >
+                    <CheckCircle size={20} />
+                    Auftrag erstellen
+                  </button>
                 </div>
               )}
-
-              {newOrder.strain && newOrder.packages.length > 0 && (
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <p className="text-sm text-blue-900">
-                    <strong>Gesamt benötigte Menge:</strong> {newOrder.packages.reduce((sum, pkg: OrderPackage) => 
-                      sum + calculateNeededAmount(pkg.size, pkg.quantity), 0
-                    )}g
-                  </p>
-                  <p className="text-sm text-blue-900 mt-1">
-                    <strong>Verfügbar:</strong> {
-                      stock.find(s => s.id === newOrder.strain)?.menge || 0
-                    }g
-                  </p>
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={createOrder}
-                disabled={newOrder.packages.length === 0 || !newOrder.strain}
-                className={`w-full py-3 rounded-lg font-medium flex items-center justify-center gap-2 ${
-                  newOrder.packages.length === 0 || !newOrder.strain
-                    ? 'bg-gray-400 text-gray-200 cursor-not-allowed'
-                    : 'bg-green-600 text-white hover:bg-green-700'
-                }`}
-              >
-                <CheckCircle size={20} />
-                Auftrag erstellen {newOrder.packages.length === 0 ? '(Bitte Verpackungen hinzufügen)' : ''}
-              </button>
             </div>
           </div>
         )}
@@ -1184,12 +1341,28 @@ const AbpackVerwaltung = () => {
                   <option value="7d">7 Tage</option>
                   <option value="30d">30 Tage</option>
                 </select>
-                <button
-                  onClick={() => exportOrders('csv')}
-                  className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs sm:text-sm hover:bg-gray-200 border"
-                >
-                  CSV
-                </button>
+                <div className="flex items-center gap-1">
+                  <select
+                    id="exportZeitraum"
+                    className="px-2 py-1 border rounded text-xs sm:text-sm bg-gray-50"
+                    defaultValue="all"
+                  >
+                    <option value="heute">Heute</option>
+                    <option value="7d">7 Tage</option>
+                    <option value="30d">30 Tage</option>
+                    <option value="90d">90 Tage</option>
+                    <option value="all">Alle</option>
+                  </select>
+                  <button
+                    onClick={() => {
+                      const select = document.getElementById('exportZeitraum') as HTMLSelectElement;
+                      exportOrders(select.value as 'heute' | '7d' | '30d' | '90d' | 'all');
+                    }}
+                    className="px-2 py-1 bg-green-600 text-white rounded text-xs sm:text-sm hover:bg-green-700"
+                  >
+                    CSV Export
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -1319,7 +1492,7 @@ const AbpackVerwaltung = () => {
         
         {/* Bestand */}
         {activeTab === 'stock' && (
-          <div className="bg-white rounded-lg shadow p-6">
+          <div>
             <div className="mb-6">
               <h2 className="text-xl font-bold mb-4">Aktueller Bestand</h2>
               <div className="flex gap-4 flex-wrap">
@@ -1330,79 +1503,534 @@ const AbpackVerwaltung = () => {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="flex-1 min-w-64 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <select
-                  value={filterCategory}
-                  onChange={(e) => setFilterCategory(e.target.value)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg"
-                >
-                  <option value="all">Alle Kategorien</option>
-                  <option value="blueten">Blüten</option>
-                  <option value="smallbuds">Small Buds</option>
-                  <option value="hash">Hash</option>
-                  <option value="extracts">Extracts</option>
-                  <option value="moonrocks">Moonrocks</option>
-                  <option value="trim">Trim</option>
-                  <option value="andere">Andere</option>
-                </select>
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Kategorie</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Name</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Hersteller</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Bestand (g)</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Zuletzt geändert von</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Zuletzt geändert am</th>
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {stock
-                    .filter((s: StockItem) => (filterCategory === 'all' || s.category === filterCategory) && (s.name.toLowerCase().includes(searchQuery.toLowerCase()) || s.id.toLowerCase().includes(searchQuery.toLowerCase())))
-                    .map((s: StockItem) => {
-                      const status = getStockStatus(s);
-                      return (
-                        <tr key={s.id} className={
-                          status === 'empty' ? 'bg-red-50' :
-                          status === 'low' ? 'bg-yellow-50' :
-                          s.menge > 0 ? 'bg-green-50' : ''
-                        }>
-                          <td className="px-4 py-3 text-sm">
-                            <span className="px-2 py-1 bg-gray-100 rounded text-xs font-medium">
-                              {categoryNames[s.category]}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-sm font-medium">{s.name}</td>
-                          <td className="px-4 py-3 text-sm">{s.hersteller || '-'}</td>
-                          <td className="px-4 py-3 text-sm font-bold">
-                            {s.menge}g
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            <span className="font-medium">{s.lastUpdatedBy || '-'}</span>
-                          </td>
-                          <td className="px-4 py-3 text-xs text-gray-600">
-                            {s.lastUpdatedAt || '-'}
-                          </td>
-                          <td className="px-4 py-3">
-                            {status === 'empty' ? (
-                              <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">Leer</span>
-                            ) : status === 'low' ? (
-                              <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-medium">Niedrig</span>
-                            ) : (
-                              <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">OK</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
+            
+            {/* Kategorien als Karten */}
+            <div className="space-y-6">
+              {displayCategoryOrder.map(cat => {
+                const items = (groupedStock[cat] || [])
+                  .filter((s: StockItem) => 
+                    searchQuery === '' || 
+                    s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    s.id.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .sort((a: StockItem, b: StockItem) => a.name.localeCompare(b.name));
+                
+                if (items.length === 0) return null;
+                
+                return (
+                  <div key={cat} className="bg-white rounded-lg shadow overflow-hidden">
+                    <div className="px-6 py-3 border-b border-gray-200">
+                      <h3 className="text-lg font-bold text-gray-800 flex items-center gap-3">
+                        <Package size={20} className="text-gray-600" />
+                        {displayCategoryLabels[cat]}
+                        <span className="ml-auto bg-gray-100 px-3 py-1 rounded-full text-sm text-gray-600">
+                          {items.length} Produkte
+                        </span>
+                      </h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Name</th>
+                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Hersteller</th>
+                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Bestand (g)</th>
+                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Zuletzt geändert von</th>
+                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Zuletzt geändert am</th>
+                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y">
+                          {items.map((s: StockItem) => {
+                            const status = getStockStatus(s);
+                            return (
+                              <tr key={s.id} className={
+                                status === 'empty' ? 'bg-red-50' :
+                                status === 'low' ? 'bg-yellow-50' :
+                                s.menge > 0 ? 'bg-green-50' : ''
+                              }>
+                                <td className="px-4 py-3 text-sm font-medium">{s.name}</td>
+                                <td className="px-4 py-3 text-sm">{s.hersteller || '-'}</td>
+                                <td className="px-4 py-3 text-sm font-bold">{s.menge}g</td>
+                                <td className="px-4 py-3 text-sm">
+                                  <span className="font-medium">{s.lastUpdatedBy || '-'}</span>
+                                </td>
+                                <td className="px-4 py-3 text-xs text-gray-600">{s.lastUpdatedAt || '-'}</td>
+                                <td className="px-4 py-3">
+                                  {status === 'empty' ? (
+                                    <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">Leer</span>
+                                  ) : status === 'low' ? (
+                                    <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-medium">Niedrig</span>
+                                  ) : (
+                                    <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">OK</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
+
+        {/* Analyse */}
+        {activeTab === 'analyse' && (() => {
+          // Zeitraum-Cutoff berechnen
+          const zeitraumTage = analyseZeitraum === 'heute' ? 0 : analyseZeitraum === '7d' ? 7 : analyseZeitraum === '30d' ? 30 : analyseZeitraum === '90d' ? 90 : analyseZeitraum === '365d' ? 365 : Infinity;
+          const cutoff = (() => {
+            if (zeitraumTage === Infinity) return 0;
+            if (analyseZeitraum === 'heute') {
+              // Heute: ab Mitternacht
+              const heute = new Date();
+              heute.setHours(0, 0, 0, 0);
+              return heute.getTime();
+            }
+            return Date.now() - zeitraumTage * 24 * 60 * 60 * 1000;
+          })();
+          
+          // Gefilterte fertige Aufträge
+          const fertigeAuftraege = orders.filter((o: Order) => {
+            if (o.status !== 'fertig') return false;
+            // Zeitraum-Filter
+            const ts = o.createdTimestamp ?? Date.parse(o.createdAt);
+            if (cutoff > 0 && ts < cutoff) return false;
+            // Kategorie-Filter
+            if (analyseKategorie !== 'all' && o.categoryName !== analyseKategorie) return false;
+            // Mitarbeiter-Filter
+            const bearbeiter = o.processedByName || o.createdByName || '';
+            if (analyseMitarbeiter !== 'all' && bearbeiter !== analyseMitarbeiter) return false;
+            return true;
+          });
+          
+          // Alle Mitarbeiter für Filter-Dropdown
+          const alleMitarbeiter = [...new Set(orders.filter(o => o.status === 'fertig').map(o => o.processedByName || o.createdByName || 'Unbekannt'))];
+          
+          // Alle Kategorien für Filter-Dropdown
+          const alleKategorien = [...new Set(orders.filter(o => o.status === 'fertig').map(o => o.categoryName))];
+          
+          
+          // Aggregiere nach Verpackungstyp und Größe
+          const verbrauch: {
+            jars: { [size: string]: number };
+            bags: { [size: string]: number };
+            deckel: number;
+            sticker: number;
+          } = {
+            jars: {},
+            bags: {},
+            deckel: 0,
+            sticker: 0
+          };
+
+          fertigeAuftraege.forEach((order: Order) => {
+            order.packages.forEach((pkg: OrderPackage) => {
+              const sizeKey = `${pkg.size}g`;
+              const type = pkg.packagingType || 'bag';
+              
+              if (type === 'jar' || type === 'glas') {
+                verbrauch.jars[sizeKey] = (verbrauch.jars[sizeKey] || 0) + pkg.quantity;
+                verbrauch.deckel += pkg.quantity; // Jedes Glas braucht einen Deckel
+                verbrauch.sticker += pkg.quantity; // Jedes Glas braucht einen Sticker
+              } else if (type === 'bag') {
+                verbrauch.bags[sizeKey] = (verbrauch.bags[sizeKey] || 0) + pkg.quantity;
+              }
+            });
+          });
+
+          // Zeitraum-Filter
+          const zeitraumFilter = (tage: number) => {
+            const cutoff = Date.now() - tage * 24 * 60 * 60 * 1000;
+            return orders.filter((o: Order) => {
+              if (o.status !== 'fertig') return false;
+              const ts = o.createdTimestamp ?? Date.parse(o.createdAt);
+              return ts >= cutoff;
+            });
+          };
+
+          const berechneVerbrauch = (auftraege: Order[]) => {
+            const v = { jars: {} as { [k: string]: number }, bags: {} as { [k: string]: number }, deckel: 0, sticker: 0 };
+            auftraege.forEach((order: Order) => {
+              order.packages.forEach((pkg: OrderPackage) => {
+                const sizeKey = `${pkg.size}g`;
+                const type = pkg.packagingType || 'bag';
+                if (type === 'jar' || type === 'glas') {
+                  v.jars[sizeKey] = (v.jars[sizeKey] || 0) + pkg.quantity;
+                  v.deckel += pkg.quantity;
+                  v.sticker += pkg.quantity;
+                } else if (type === 'bag') {
+                  v.bags[sizeKey] = (v.bags[sizeKey] || 0) + pkg.quantity;
+                }
+              });
+            });
+            return v;
+          };
+
+          const verbrauchGesamt = berechneVerbrauch(fertigeAuftraege);
+
+          const renderVerbrauchTabelle = (v: typeof verbrauch, titel: string) => (
+            <div className="bg-white rounded-lg shadow p-6">
+              <h3 className="text-lg font-bold mb-4">{titel}</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Gläser */}
+                <div>
+                  <h4 className="font-medium text-gray-700 mb-2 flex items-center gap-2">
+                    <Package size={16} /> Gläser
+                  </h4>
+                  {Object.keys(v.jars).length === 0 ? (
+                    <p className="text-gray-400 text-sm">Keine Daten</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {Object.entries(v.jars).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(([size, count]) => (
+                        <li key={size} className="flex justify-between text-sm">
+                          <span>{size}</span>
+                          <span className="font-bold">{count} Stück</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                {/* Bags */}
+                <div>
+                  <h4 className="font-medium text-gray-700 mb-2 flex items-center gap-2">
+                    <Package size={16} /> Bags
+                  </h4>
+                  {Object.keys(v.bags).length === 0 ? (
+                    <p className="text-gray-400 text-sm">Keine Daten</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {Object.entries(v.bags).sort((a, b) => parseFloat(a[0]) - parseFloat(b[0])).map(([size, count]) => (
+                        <li key={size} className="flex justify-between text-sm">
+                          <span>{size}</span>
+                          <span className="font-bold">{count} Stück</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+              {/* Deckel & Sticker */}
+              <div className="mt-4 pt-4 border-t grid grid-cols-2 gap-4">
+                <div className="flex justify-between items-center">
+                  <span className="font-medium text-gray-700">Deckel (für Gläser)</span>
+                  <span className="text-xl font-bold text-green-600">{v.deckel} Stück</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="font-medium text-gray-700">Sticker (für Gläser)</span>
+                  <span className="text-xl font-bold text-blue-600">{v.sticker} Stück</span>
+                </div>
+              </div>
+            </div>
+          );
+
+          return (
+            <div className="space-y-6">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <BarChart3 size={24} /> Analyse Dashboard
+              </h2>
+              
+              {/* Filterleiste */}
+              <div className="bg-white rounded-lg shadow p-4">
+                <div className="flex flex-wrap gap-4 items-end">
+                  {/* Zeitraum */}
+                  <div className="flex-1 min-w-40">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Zeitraum</label>
+                    <select
+                      value={analyseZeitraum}
+                      onChange={(e) => setAnalyseZeitraum(e.target.value as typeof analyseZeitraum)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="heute">Heute</option>
+                      <option value="7d">Letzte 7 Tage</option>
+                      <option value="30d">Letzte 30 Tage</option>
+                      <option value="90d">Letzte 90 Tage</option>
+                      <option value="365d">Letztes Jahr</option>
+                      <option value="all">Alle Daten</option>
+                    </select>
+                  </div>
+                  
+                  {/* Kategorie */}
+                  <div className="flex-1 min-w-40">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Kategorie</label>
+                    <select
+                      value={analyseKategorie}
+                      onChange={(e) => setAnalyseKategorie(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="all">Alle Kategorien</option>
+                      {alleKategorien.map(kat => (
+                        <option key={kat} value={kat}>{categoryNames[kat] || kat}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  {/* Mitarbeiter */}
+                  <div className="flex-1 min-w-40">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Mitarbeiter</label>
+                    <select
+                      value={analyseMitarbeiter}
+                      onChange={(e) => setAnalyseMitarbeiter(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="all">Alle Mitarbeiter</option>
+                      {alleMitarbeiter.map(ma => (
+                        <option key={ma} value={ma}>{ma}</option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  {/* Filter zurücksetzen */}
+                  <button
+                    onClick={() => {
+                      setAnalyseZeitraum('30d');
+                      setAnalyseKategorie('all');
+                      setAnalyseMitarbeiter('all');
+                    }}
+                    className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition"
+                  >
+                    Filter zurücksetzen
+                  </button>
+                </div>
+                
+                {/* Aktive Filter anzeigen */}
+                <div className="mt-3 flex gap-2 text-sm">
+                  <span className="text-gray-500">Aktive Filter:</span>
+                  <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded">
+                    {analyseZeitraum === 'heute' ? 'Heute' : analyseZeitraum === '7d' ? '7 Tage' : analyseZeitraum === '30d' ? '30 Tage' : analyseZeitraum === '90d' ? '90 Tage' : analyseZeitraum === '365d' ? '1 Jahr' : 'Alle'}
+                  </span>
+                  {analyseKategorie !== 'all' && (
+                    <span className="px-2 py-0.5 bg-green-100 text-green-800 rounded">
+                      {categoryNames[analyseKategorie] || analyseKategorie}
+                    </span>
+                  )}
+                  {analyseMitarbeiter !== 'all' && (
+                    <span className="px-2 py-0.5 bg-purple-100 text-purple-800 rounded">
+                      {analyseMitarbeiter}
+                    </span>
+                  )}
+                  <span className="ml-auto text-gray-600">{fertigeAuftraege.length} Aufträge gefunden</span>
+                </div>
+              </div>
+              
+              {/* Übersicht-Karten */}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                <div className="bg-white p-6 rounded-lg shadow">
+                  <p className="text-gray-500 text-sm">Fertige Aufträge (gesamt)</p>
+                  <p className="text-3xl font-bold text-green-600">{fertigeAuftraege.length}</p>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow">
+                  <p className="text-gray-500 text-sm">Gläser verbraucht</p>
+                  <p className="text-3xl font-bold text-blue-600">
+                    {Object.values(verbrauchGesamt.jars).reduce((sum, n) => sum + n, 0)}
+                  </p>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow">
+                  <p className="text-gray-500 text-sm">Deckel verbraucht</p>
+                  <p className="text-3xl font-bold text-green-600">{verbrauchGesamt.deckel}</p>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow">
+                  <p className="text-gray-500 text-sm">Bags verbraucht</p>
+                  <p className="text-3xl font-bold text-purple-600">
+                    {Object.values(verbrauchGesamt.bags).reduce((sum, n) => sum + n, 0)}
+                  </p>
+                </div>
+                <div className="bg-white p-6 rounded-lg shadow">
+                  <p className="text-gray-500 text-sm">Sticker verbraucht</p>
+                  <p className="text-3xl font-bold text-orange-600">{verbrauchGesamt.sticker}</p>
+                </div>
+              </div>
+
+              {/* Verpackungsmaterial-Verbrauch (gefiltert) */}
+              {renderVerbrauchTabelle(verbrauchGesamt, 'Verpackungsmaterial-Verbrauch')}
+
+              {/* Mitarbeiter-Produktivität */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-bold mb-4">Mitarbeiter-Produktivität (Bearbeiter)</h3>
+                {(() => {
+                  const mitarbeiterStats: { [name: string]: { auftraege: number; gramm: number } } = {};
+                  fertigeAuftraege.forEach((order: Order) => {
+                    const name = order.processedByName || order.createdByName || 'Unbekannt';
+                    if (!mitarbeiterStats[name]) {
+                      mitarbeiterStats[name] = { auftraege: 0, gramm: 0 };
+                    }
+                    mitarbeiterStats[name].auftraege += 1;
+                    mitarbeiterStats[name].gramm += order.neededAmount;
+                  });
+                  
+                  const sorted = Object.entries(mitarbeiterStats)
+                    .sort((a, b) => b[1].gramm - a[1].gramm);
+                  
+                  if (sorted.length === 0) {
+                    return <p className="text-gray-400">Keine Daten</p>;
+                  }
+                  
+                  return (
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Mitarbeiter</th>
+                          <th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Aufträge</th>
+                          <th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Gramm verarbeitet</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {sorted.map(([name, stats]) => (
+                          <tr key={name}>
+                            <td className="px-4 py-3 text-sm font-medium">{name}</td>
+                            <td className="px-4 py-3 text-sm text-right">{stats.auftraege}</td>
+                            <td className="px-4 py-3 text-sm text-right font-bold">{stats.gramm.toFixed(0)}g</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                })()}
+              </div>
+
+              {/* Top-Sorten */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-bold mb-4">Top 10 Sorten (nach Gramm)</h3>
+                {(() => {
+                  const sortenStats: { [name: string]: { auftraege: number; gramm: number; kategorie: string } } = {};
+                  fertigeAuftraege.forEach((order: Order) => {
+                    const name = order.strainName;
+                    if (!sortenStats[name]) {
+                      sortenStats[name] = { auftraege: 0, gramm: 0, kategorie: order.categoryName };
+                    }
+                    sortenStats[name].auftraege += 1;
+                    sortenStats[name].gramm += order.neededAmount;
+                  });
+                  
+                  const sorted = Object.entries(sortenStats)
+                    .sort((a, b) => b[1].gramm - a[1].gramm)
+                    .slice(0, 10);
+                  
+                  if (sorted.length === 0) {
+                    return <p className="text-gray-400">Keine Daten</p>;
+                  }
+                  
+                  return (
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">#</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Sorte</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Kategorie</th>
+                          <th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Aufträge</th>
+                          <th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Gramm</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {sorted.map(([name, stats], idx) => (
+                          <tr key={name}>
+                            <td className="px-4 py-3 text-sm text-gray-500">{idx + 1}</td>
+                            <td className="px-4 py-3 text-sm font-medium">{name}</td>
+                            <td className="px-4 py-3 text-sm">
+                              <span className="px-2 py-1 bg-gray-100 rounded text-xs">{categoryNames[stats.kategorie] || stats.kategorie}</span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right">{stats.auftraege}</td>
+                            <td className="px-4 py-3 text-sm text-right font-bold">{stats.gramm.toFixed(0)}g</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                })()}
+              </div>
+
+              {/* Nachbestell-Prognose */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-bold mb-4">🔔 Nachbestell-Prognose (basierend auf 30-Tage-Verbrauch)</h3>
+                {(() => {
+                  // Berechne Verbrauch pro Sorte in den letzten 30 Tagen
+                  const verbrauchProSorte: { [strainId: string]: { name: string; kategorie: string; gramm: number } } = {};
+                  const auftraege30d = zeitraumFilter(30);
+                  auftraege30d.forEach((order: Order) => {
+                    if (!verbrauchProSorte[order.strain]) {
+                      verbrauchProSorte[order.strain] = { name: order.strainName, kategorie: order.categoryName, gramm: 0 };
+                    }
+                    verbrauchProSorte[order.strain].gramm += order.neededAmount;
+                  });
+                  
+                  // Berechne Tage bis leer für jeden Stock-Artikel
+                  const prognosen = stock
+                    .filter((s: StockItem) => s.category !== 'andere')
+                    .map((s: StockItem) => {
+                      const verbrauch = verbrauchProSorte[s.id];
+                      const verbrauchPro30Tage = verbrauch ? verbrauch.gramm : 0;
+                      const tagesverbrauch = verbrauchPro30Tage / 30;
+                      const tageVerbleibend = tagesverbrauch > 0 ? Math.floor(s.menge / tagesverbrauch) : Infinity;
+                      
+                      return {
+                        id: s.id,
+                        name: s.name,
+                        kategorie: s.category,
+                        bestand: s.menge,
+                        verbrauch30d: verbrauchPro30Tage,
+                        tagesverbrauch,
+                        tageVerbleibend
+                      };
+                    })
+                    .filter(p => p.verbrauch30d > 0) // Nur Artikel mit Verbrauch
+                    .sort((a, b) => a.tageVerbleibend - b.tageVerbleibend)
+                    .slice(0, 15);
+                  
+                  if (prognosen.length === 0) {
+                    return <p className="text-gray-400">Nicht genug Daten für Prognose (benötigt Aufträge der letzten 30 Tage)</p>;
+                  }
+                  
+                  return (
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Produkt</th>
+                          <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Kategorie</th>
+                          <th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Aktuell</th>
+                          <th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Ø/Tag</th>
+                          <th className="px-4 py-2 text-right text-sm font-medium text-gray-700">Reicht noch</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {prognosen.map((p) => (
+                          <tr key={p.id} className={
+                            p.tageVerbleibend <= 7 ? 'bg-red-50' :
+                            p.tageVerbleibend <= 14 ? 'bg-yellow-50' : ''
+                          }>
+                            <td className="px-4 py-3 text-sm font-medium">{p.name}</td>
+                            <td className="px-4 py-3 text-sm">
+                              <span className="px-2 py-1 bg-gray-100 rounded text-xs">{categoryNames[p.kategorie] || p.kategorie}</span>
+                            </td>
+                            <td className="px-4 py-3 text-sm text-right">{p.bestand.toFixed(0)}g</td>
+                            <td className="px-4 py-3 text-sm text-right">{p.tagesverbrauch.toFixed(1)}g</td>
+                            <td className="px-4 py-3 text-right">
+                              {p.tageVerbleibend <= 7 ? (
+                                <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-sm font-bold">
+                                  {p.tageVerbleibend} Tage ⚠️
+                                </span>
+                              ) : p.tageVerbleibend <= 14 ? (
+                                <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-sm font-bold">
+                                  {p.tageVerbleibend} Tage
+                                </span>
+                              ) : (
+                                <span className="text-sm font-medium text-green-700">{p.tageVerbleibend} Tage</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  );
+                })()}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
