@@ -1,0 +1,57 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  db:
+    image: mysql:8.0
+    container_name: abpack_db
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password_2025
+      MYSQL_DATABASE: abpack_verwaltung
+      MYSQL_USER: abpack_user
+      MYSQL_PASSWORD: abpack_password_2025
+    ports:
+      - "3306:3306"
+    volumes:
+      - abpack_db_data:/var/lib/mysql
+    networks:
+      - abpack_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Node.js App
+  app:
+    build: .
+    container_name: abpack_app
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: mysql://abpack_user:abpack_password_2025@db:3306/abpack_verwaltung
+      JWT_SECRET: super-geheimer-schluessel-123-xyz-abpack-2025
+      VITE_APP_ID: abpack_verwaltung
+      # Optional OAuth / API (leer lassen wenn nicht benötigt)
+      OAUTH_SERVER_URL: ""
+      OWNER_OPEN_ID: ""
+      BUILT_IN_FORGE_API_URL: ""
+      BUILT_IN_FORGE_API_KEY: ""
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - abpack_network
+    restart: unless-stopped
+    volumes:
+      # Optional: Logs volume
+      - abpack_app_logs:/app/logs
+
+volumes:
+  abpack_db_data:
+  abpack_app_logs:
+
+networks:
+  abpack_network:
+    driver: bridge

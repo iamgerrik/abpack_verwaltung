@@ -1,0 +1,30 @@
+{
+  "query": "SELECT id, name, menge FROM stock WHERE id IN ('MJ1', 'AL', 'BK', 'FILTER');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 41e1yaQ4Z5hFPSq.root --database 7VtGenYhnA2RAgoUquVMzV --execute SELECT id, name, menge FROM stock WHERE id IN ('MJ1', 'AL', 'BK', 'FILTER');",
+  "rows": [
+    {
+      "id": "MJ1",
+      "name": "Meer Jane 1",
+      "menge": "1670.00"
+    },
+    {
+      "id": "AL",
+      "name": "AL",
+      "menge": "335.00"
+    },
+    {
+      "id": "BK",
+      "name": "BK",
+      "menge": "475.00"
+    },
+    {
+      "id": "FILTER",
+      "name": "FILTER (Stk.)",
+      "menge": "77600.00"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tmenge\nMJ1\tMeer Jane 1\t1670.00\nAL\tAL\t335.00\nBK\tBK\t475.00\nFILTER\tFILTER (Stk.)\t77600.00\n",
+  "stderr": "",
+  "execution_time_ms": 341
+}

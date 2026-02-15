@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1769171366918,
+      "tag": "0000_faulty_wolverine",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1769172688529,
+      "tag": "0001_chemical_hellcat",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1769173167154,
+      "tag": "0002_flowery_madelyne_pryor",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1769423816621,
+      "tag": "0003_dark_norrin_radd",
+      "breakpoints": true
+    }
+  ]
+}

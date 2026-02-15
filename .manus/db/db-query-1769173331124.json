@@ -1,0 +1,37 @@
+{
+  "query": "SELECT * FROM stock LIMIT 3;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway03.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 41e1yaQ4Z5hFPSq.root --database 7VtGenYhnA2RAgoUquVMzV --execute SELECT * FROM stock LIMIT 3;",
+  "rows": [
+    {
+      "id": "AH",
+      "category": "blueten",
+      "name": "AH",
+      "hersteller": "Citrup",
+      "menge": "0.00",
+      "createdAt": "2026-01-23 12:59:32",
+      "updatedAt": "2026-01-23 12:59:32"
+    },
+    {
+      "id": "AL",
+      "category": "blueten",
+      "name": "AL",
+      "hersteller": "Lemon Cookies",
+      "menge": "335.00",
+      "createdAt": "2026-01-23 12:59:32",
+      "updatedAt": "2026-01-23 12:59:32"
+    },
+    {
+      "id": "BK",
+      "category": "blueten",
+      "name": "BK",
+      "hersteller": "Candy Kush",
+      "menge": "475.00",
+      "createdAt": "2026-01-23 12:59:32",
+      "updatedAt": "2026-01-23 12:59:32"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tcategory\tname\thersteller\tmenge\tcreatedAt\tupdatedAt\nAH\tblueten\tAH\tCitrup\t0.00\t2026-01-23 12:59:32\t2026-01-23 12:59:32\nAL\tblueten\tAL\tLemon Cookies\t335.00\t2026-01-23 12:59:32\t2026-01-23 12:59:32\nBK\tblueten\tBK\tCandy Kush\t475.00\t2026-01-23 12:59:32\t2026-01-23 12:59:32\n",
+  "stderr": "",
+  "execution_time_ms": 338
+}

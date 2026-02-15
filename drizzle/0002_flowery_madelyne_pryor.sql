@@ -1,0 +1,1 @@
+ALTER TABLE `stock` MODIFY COLUMN `menge` decimal(10,2) NOT NULL;
