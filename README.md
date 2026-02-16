@@ -18,6 +18,33 @@ Das Abpack-Verwaltungssystem ist eine moderne Web-App zur Verwaltung und Analyse
 ![Workflow der App](graphics/workflow.png)
 
 
+## Screenshots
+
+### Login
+Die Login-Seite ermöglicht den sicheren Zugang für verschiedene Nutzerrollen.
+![Login](graphics/login.png)
+
+### Dashboard
+Das Dashboard zeigt aktuelle KPIs, offene und fertige Aufträge sowie Statistiken auf einen Blick.
+![Dashboard](graphics/dashboard.png)
+
+### Bestand
+Hier werden alle aktuellen Bestände übersichtlich angezeigt und verwaltet.
+![Bestand](graphics/bestand.png)
+
+### Aufträge
+Die Auftragsübersicht listet alle laufenden und abgeschlossenen Aufträge.
+![Aufträge](graphics/auftraege.png)
+
+### Neuer Auftrag
+Mit wenigen Klicks kann ein neuer Auftrag angelegt werden.
+![Neuer Auftrag](graphics/neuer-auftrag.png)
+
+### Wareneingang
+Erfassung und Verwaltung von Wareneingängen im System.
+![Wareneingang](graphics/wareneingang.png)
+
+
 ## Technologiestack
 - **Frontend:** React + TypeScript, Vite
 - **Backend:** Node.js, tRPC, Express
