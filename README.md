@@ -13,7 +13,7 @@ Das Abpack-Verwaltungssystem ist eine moderne Web-App zur Verwaltung und Analyse
 - Mobile-optimierte Ansicht
 - Benutzerverwaltung und Login
 
-## Workflow der App
+## Workflow
 
 ![Workflow der App](graphics/workflow.png)
 
