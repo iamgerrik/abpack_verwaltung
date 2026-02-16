@@ -78,11 +78,43 @@ export async function getStock() {
   return await db.select().from(stock);
 }
 
-export async function updateStockMenge(stockId: string, newMenge: number) {
+export async function updateStockMenge(stockId: string, newMenge: number, newHersteller?: string) {
   const db = await getDb();
   if (!db) return null;
-  const result = await db.update(stock).set({ menge: newMenge.toString() }).where(eq(stock.id, stockId));
+  const updateData: { menge: string; hersteller?: string } = { menge: newMenge.toString() };
+  if (newHersteller !== undefined && newHersteller.trim() !== '') {
+    updateData.hersteller = newHersteller.trim();
+  }
+  const result = await db.update(stock).set(updateData).where(eq(stock.id, stockId));
   return result;
+}
+
+export async function createStock(data: { id: string; category: string; name: string; hersteller?: string; menge?: number }) {
+  const db = await getDb();
+  if (!db) return null;
+  return await db.insert(stock).values({
+    id: data.id,
+    category: data.category,
+    name: data.name,
+    hersteller: data.hersteller || '',
+    menge: (data.menge || 0).toString(),
+  });
+}
+
+export async function updateStock(stockId: string, data: { name?: string; category?: string; hersteller?: string }) {
+  const db = await getDb();
+  if (!db) return null;
+  const updateData: { name?: string; category?: string; hersteller?: string } = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.category !== undefined) updateData.category = data.category;
+  if (data.hersteller !== undefined) updateData.hersteller = data.hersteller;
+  return await db.update(stock).set(updateData).where(eq(stock.id, stockId));
+}
+
+export async function deleteStock(stockId: string) {
+  const db = await getDb();
+  if (!db) return null;
+  return await db.delete(stock).where(eq(stock.id, stockId));
 }
 
 export async function createOrder(order: InsertOrder) {

@@ -26,8 +26,36 @@ export const appRouter = router({
       .input(z.object({
         stockId: z.string(),
         newMenge: z.number(),
+        newHersteller: z.string().optional(),
       }))
-      .mutation(({ input }) => db.updateStockMenge(input.stockId, input.newMenge)),
+      .mutation(({ input }) => db.updateStockMenge(input.stockId, input.newMenge, input.newHersteller)),
+    
+    createStock: protectedProcedure
+      .input(z.object({
+        id: z.string(),
+        category: z.string(),
+        name: z.string(),
+        hersteller: z.string().optional(),
+        menge: z.number().optional(),
+      }))
+      .mutation(({ input }) => db.createStock(input)),
+    
+    updateStock: protectedProcedure
+      .input(z.object({
+        stockId: z.string(),
+        name: z.string().optional(),
+        category: z.string().optional(),
+        hersteller: z.string().optional(),
+      }))
+      .mutation(({ input }) => db.updateStock(input.stockId, {
+        name: input.name,
+        category: input.category,
+        hersteller: input.hersteller,
+      })),
+    
+    deleteStock: protectedProcedure
+      .input(z.object({ stockId: z.string() }))
+      .mutation(({ input }) => db.deleteStock(input.stockId)),
     
     // Orders
     createOrder: protectedProcedure

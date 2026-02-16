@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { AlertCircle, Package, CheckCircle, Clock, Plus, Trash2, TrendingUp, LogOut, BarChart3 } from 'lucide-react';
+import { AlertCircle, Package, CheckCircle, Clock, Plus, Trash2, TrendingUp, LogOut, BarChart3, Pencil, X } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { trpc } from '../lib/trpc';
 import { useQueryClient } from '@tanstack/react-query';
@@ -30,8 +30,8 @@ interface Order {
   packages: OrderPackage[];
   neededAmount: number;
   status: string;
-  createdAt: string;
-  updatedAt?: string;  // Zeitpunkt der letzten Statusänderung
+  createdAt: string | Date;
+  updatedAt?: string | Date;  // Zeitpunkt der letzten Statusänderung
   createdTimestamp?: number;
   remainder?: number;
   createdByName?: string;  // Username der Person, die den Auftrag erstellt hat
@@ -54,6 +54,9 @@ const AbpackVerwaltung = () => {
   const { user, logout } = useAuth();
   const queryClient = useQueryClient();
   const [users, setUsers] = useState<Array<{id: number; username: string; role: string}>>([]);
+  
+  // Prüfe ob User Admin oder Dev ist
+  const canManageProducts = user?.role === 'admin' || user?.role === 'dev';
   
   const handleLogout = () => {
     logout();
@@ -114,6 +117,23 @@ const AbpackVerwaltung = () => {
     },
   });
   
+  // Stock CRUD Mutations
+  const createStockMutation = trpc.abpack.createStock.useMutation({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [['abpack', 'getStock']] });
+    },
+  });
+  const updateStockMutation = trpc.abpack.updateStock.useMutation({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [['abpack', 'getStock']] });
+    },
+  });
+  const deleteStockMutation = trpc.abpack.deleteStock.useMutation({
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [['abpack', 'getStock']] });
+    },
+  });
+  
   // Aktualisierter Bestand basierend auf dem Foto
   const initialStock = [
     // BLÜTEN
@@ -136,6 +156,7 @@ const AbpackVerwaltung = () => {
     { id: 'SB_BANANA', category: 'smallbuds', name: 'SB Banana', hersteller: '', menge: 0 },
     { id: 'SB_GSC', category: 'smallbuds', name: 'SB GSC', hersteller: '', menge: 0 },
     { id: 'SB_STRAWBERRY', category: 'smallbuds', name: 'SB Strawberry', hersteller: '', menge: 800 },
+    { id: 'SF', category: 'smallbuds', name: 'Small Friends', hersteller: '', menge: 0 },
     
     // HASH
     { id: 'H_SD', category: 'hash', name: 'Super Dry', hersteller: '', menge: 34 },
@@ -172,6 +193,7 @@ const AbpackVerwaltung = () => {
     { id: 'TRIM', category: 'trim', name: 'TRIM', hersteller: '', menge: 0 },
     { id: 'TRIM_NORMAL', category: 'trim', name: 'Trim', hersteller: '', menge: 2800 },
     { id: 'GREENHOUSE', category: 'trim', name: 'Greenhouse', hersteller: '', menge: 0 },
+    { id: '420MIX', category: 'trim', name: '420Mix', hersteller: '', menge: 0 },
     
     // ANDERE
     { id: 'FILTER', category: 'andere', name: 'FILTER (Stk.)', hersteller: '', menge: 77600 },
@@ -206,7 +228,8 @@ const AbpackVerwaltung = () => {
     packages: Array.isArray(o.packages) ? o.packages as OrderPackage[] : [],
     neededAmount: typeof o.neededAmount === 'string' ? parseFloat(o.neededAmount) : (o.neededAmount ?? 0),
     status: o.status,
-    createdAt: o.createdAt instanceof Date ? o.createdAt.toLocaleString('de-DE') : String(o.createdAt),
+    createdAt: o.createdAt,
+    updatedAt: o.updatedAt,
     createdTimestamp: o.createdAt instanceof Date ? o.createdAt.getTime() : Date.parse(String(o.createdAt)),
     remainder: o.remainder ? (typeof o.remainder === 'string' ? parseFloat(o.remainder) : o.remainder) : undefined,
     createdByName: (o as any).createdByName || undefined,
@@ -230,7 +253,9 @@ const AbpackVerwaltung = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'offen' | 'in_bearbeitung' | 'fertig'>('all');
   const [orderSearch, setOrderSearch] = useState<string>('');
-  const [orderDateRange, setOrderDateRange] = useState<'all' | 'today' | '7d' | '30d'>('all');
+  // Datums-Filter mit Von/Bis
+  const [orderDateFrom, setOrderDateFrom] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [orderDateTo, setOrderDateTo] = useState<string>(new Date().toISOString().split('T')[0]);
   
   // Analyse-Filter
   const [analyseZeitraum, setAnalyseZeitraum] = useState<'heute' | '7d' | '30d' | '90d' | '365d' | 'all'>('30d');
@@ -266,6 +291,17 @@ const AbpackVerwaltung = () => {
   });
   const [filterCategory, setFilterCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Produkt-Verwaltung
+  const [showProductModal, setShowProductModal] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<StockItem | null>(null);
+  const [productForm, setProductForm] = useState({
+    id: '',
+    name: '',
+    category: 'blueten',
+    hersteller: '',
+    menge: 0
+  });
 
   // Berechne benötigte Menge (mit 0,3g Toleranz pro Produkt)
   const calculateNeededAmount = (size: number, quantity: number): number => {
@@ -498,10 +534,11 @@ const AbpackVerwaltung = () => {
         categoryName: selectedStock.category,
       });
 
-      // Bestand in DB erhöhen
+      // Bestand in DB erhöhen (und Hersteller aktualisieren falls Lieferant angegeben)
       await updateStockMengeMutation.mutateAsync({
         stockId: wareneingang.strain,
         newMenge: selectedStock.menge + mengeValue,
+        newHersteller: wareneingang.lieferant || undefined,
       });
 
       // Formular zurücksetzen
@@ -520,9 +557,85 @@ const AbpackVerwaltung = () => {
     }
   };
 
+  // ========== Produkt-Verwaltung ==========
+  const openAddProductModal = () => {
+    setEditingProduct(null);
+    setProductForm({
+      id: '',
+      name: '',
+      category: 'blueten',
+      hersteller: '',
+      menge: 0
+    });
+    setShowProductModal(true);
+  };
+
+  const openEditProductModal = (product: StockItem) => {
+    setEditingProduct(product);
+    setProductForm({
+      id: product.id,
+      name: product.name,
+      category: product.category,
+      hersteller: product.hersteller,
+      menge: product.menge
+    });
+    setShowProductModal(true);
+  };
+
+  const handleSaveProduct = async () => {
+    if (!productForm.id.trim() || !productForm.name.trim()) {
+      alert('ID und Name sind erforderlich!');
+      return;
+    }
+
+    try {
+      if (editingProduct) {
+        // Bearbeiten
+        await updateStockMutation.mutateAsync({
+          stockId: editingProduct.id,
+          name: productForm.name,
+          category: productForm.category,
+          hersteller: productForm.hersteller,
+        });
+        alert('Produkt aktualisiert!');
+      } else {
+        // Neu erstellen
+        await createStockMutation.mutateAsync({
+          id: productForm.id.toUpperCase().replace(/\s+/g, '_'),
+          name: productForm.name,
+          category: productForm.category,
+          hersteller: productForm.hersteller || undefined,
+          menge: productForm.menge,
+        });
+        alert('Produkt hinzugefügt!');
+      }
+      setShowProductModal(false);
+    } catch (error: any) {
+      if (error?.message?.includes('Duplicate')) {
+        alert('Ein Produkt mit dieser ID existiert bereits!');
+      } else {
+        alert('Fehler beim Speichern: ' + (error?.message || 'Unbekannter Fehler'));
+      }
+    }
+  };
+
+  const handleDeleteProduct = async (product: StockItem) => {
+    if (!confirm(`Produkt "${product.name}" wirklich löschen?\\n\\nAchtung: Diese Aktion kann nicht rückgängig gemacht werden!`)) {
+      return;
+    }
+    try {
+      await deleteStockMutation.mutateAsync({ stockId: product.id });
+      alert('Produkt gelöscht!');
+    } catch (error) {
+      alert('Fehler beim Löschen!');
+    }
+  };
+
   // Hilfsfunktion: Prüft ob ein Datum heute ist
-  const isToday = (dateStr: string): boolean => {
-    const date = new Date(dateStr);
+  const isToday = (dateInput: string | Date | undefined | null): boolean => {
+    if (!dateInput) return false;
+    const date = new Date(dateInput);
+    if (isNaN(date.getTime())) return false;
     const today = new Date();
     return date.getDate() === today.getDate() &&
            date.getMonth() === today.getMonth() &&
@@ -534,11 +647,8 @@ const AbpackVerwaltung = () => {
   const visibleOrders = orders.filter((o: Order) => {
     if (o.status !== 'fertig') return true; // nicht-fertige immer zeigen
     // Fertige nur wenn heute abgeschlossen (updatedAt = heute)
-    if (o.updatedAt) {
-      return isToday(o.updatedAt);
-    }
-    // Fallback auf createdAt wenn kein updatedAt
-    return isToday(o.createdAt);
+    // Prüfe zuerst updatedAt, dann createdAt als Fallback
+    return isToday(o.updatedAt) || isToday(o.createdAt);
   });
 
   // Statistiken (basierend auf sichtbaren Aufträgen)
@@ -552,11 +662,11 @@ const AbpackVerwaltung = () => {
   // Kategorie-Namen
   const categoryNames: { [key: string]: string } = {
     blueten: 'Blüten',
-    smallbuds: 'Small Buds',
+    smallbuds: 'Small Friends',
     hash: 'Hash',
     extracts: 'Extracts',
     moonrocks: 'Moonrocks',
-    trim: 'Trim',
+    trim: '420Mix',
     andere: 'Andere'
   };
 
@@ -578,8 +688,8 @@ const AbpackVerwaltung = () => {
   const displayCategoryLabels: { [key: string]: string } = {
     blueten: 'Blüten',
     moonrocks: 'Moonrocks',
-    smallbuds: 'Small Buds',
-    trim: 'Trim',
+    smallbuds: 'Small Friends',
+    trim: '420Mix',
     herbal: 'Herbal',
     filter: 'Filter',
     crumble: 'Crumble',
@@ -618,48 +728,41 @@ const AbpackVerwaltung = () => {
     return acc;
   }, {});
 
+  // Status-Priorität: offen=0, in_bearbeitung=1, fertig=2
+  const statusPriority: Record<string, number> = {
+    'offen': 0,
+    'in_bearbeitung': 1,
+    'fertig': 2
+  };
+
   const filteredOrders = visibleOrders
     .filter((o) => (orderStatusFilter === 'all' ? true : o.status === orderStatusFilter))
     .filter((o) => {
-      if (orderDateRange === 'all') return true;
+      if (!orderDateFrom && !orderDateTo) return true;
       const ts = o.createdTimestamp ?? Date.parse(o.createdAt);
       if (Number.isNaN(ts)) return true;
-      const now = Date.now();
-      const start = (() => {
-        if (orderDateRange === 'today') {
-          const d = new Date();
-          d.setHours(0, 0, 0, 0);
-          return d.getTime();
-        }
-        if (orderDateRange === '7d') {
-          return now - 7 * 24 * 60 * 60 * 1000;
-        }
-        // '30d'
-        return now - 30 * 24 * 60 * 60 * 1000;
-      })();
-      return ts >= start;
-    });
+      
+      const fromTs = orderDateFrom ? new Date(orderDateFrom).setHours(0, 0, 0, 0) : 0;
+      const toTs = orderDateTo ? new Date(orderDateTo).setHours(23, 59, 59, 999) : Infinity;
+      
+      return ts >= fromTs && ts <= toTs;
+    })
+    .sort((a, b) => (statusPriority[a.status] ?? 99) - (statusPriority[b.status] ?? 99));
 
   // Export-Funktion: Alle Aufträge aus DB (nicht nur gefilterte/sichtbare)
-  const exportOrders = (format: 'csv' | 'xlsx', exportZeitraum: 'heute' | '7d' | '30d' | '90d' | 'all' = '7d') => {
-    const delimiter = format === 'csv' ? ';' : '\t';
+  const exportOrders = () => {
+    const delimiter = '\t'; // Tab für Excel
     
-    // Zeitraum-Filter für Export
-    const exportCutoff = (() => {
-      if (exportZeitraum === 'all') return 0;
-      if (exportZeitraum === 'heute') {
-        const heute = new Date();
-        heute.setHours(0, 0, 0, 0);
-        return heute.getTime();
-      }
-      const tage = exportZeitraum === '7d' ? 7 : exportZeitraum === '30d' ? 30 : 90;
-      return Date.now() - tage * 24 * 60 * 60 * 1000;
-    })();
-    
-    // ALLE Aufträge aus DB filtern (nicht nur sichtbare)
+    // ALLE Aufträge aus DB filtern (gleicher Filter wie Anzeige)
     const exportAuftraege = orders.filter((o: Order) => {
+      if (!orderDateFrom && !orderDateTo) return true;
       const ts = o.createdTimestamp ?? Date.parse(o.createdAt);
-      return exportCutoff === 0 || ts >= exportCutoff;
+      if (Number.isNaN(ts)) return true;
+      
+      const fromTs = orderDateFrom ? new Date(orderDateFrom).setHours(0, 0, 0, 0) : 0;
+      const toTs = orderDateTo ? new Date(orderDateTo).setHours(23, 59, 59, 999) : Infinity;
+      
+      return ts >= fromTs && ts <= toTs;
     });
     
     const headers = [
@@ -712,19 +815,17 @@ const AbpackVerwaltung = () => {
       .join('\n');
 
     // Dateiname mit Zeitraum
-    const zeitraumLabel = exportZeitraum === 'heute' ? 'heute' : exportZeitraum === '7d' ? '7tage' : exportZeitraum === '30d' ? '30tage' : exportZeitraum === '90d' ? '90tage' : 'alle';
-    const datumStr = new Date().toISOString().split('T')[0];
+    const zeitraumLabel = orderDateFrom === orderDateTo 
+      ? orderDateFrom 
+      : `${orderDateFrom}_bis_${orderDateTo}`;
     
     const blob = new Blob(['\uFEFF' + content], { // BOM für Excel UTF-8
-      type:
-        format === 'csv'
-          ? 'text/csv;charset=utf-8;'
-          : 'application/vnd.ms-excel'
+      type: 'application/vnd.ms-excel'
     });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `auftraege_${zeitraumLabel}_${datumStr}.${format === 'csv' ? 'csv' : 'xls'}`;
+    link.download = `Auftraege_${zeitraumLabel}.xls`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -800,16 +901,18 @@ const AbpackVerwaltung = () => {
           >
             Bestand
           </button>
-          <button
-            onClick={() => setActiveTab('analyse')}
-            className={`px-4 py-2 rounded-lg font-medium ${
-              activeTab === 'analyse'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            <span className="flex items-center gap-2"><BarChart3 size={16} /> Analyse</span>
-          </button>
+          {canManageProducts && (
+            <button
+              onClick={() => setActiveTab('analyse')}
+              className={`px-4 py-2 rounded-lg font-medium ${
+                activeTab === 'analyse'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-100'
+              }`}
+            >
+              <span className="flex items-center gap-2"><BarChart3 size={16} /> Analyse</span>
+            </button>
+          )}
         </div>
 
         {/* Dashboard */}
@@ -953,7 +1056,7 @@ const AbpackVerwaltung = () => {
                     className="w-full p-2 border border-gray-300 rounded-lg"
                   >
                     <option value="blueten">Blüten</option>
-                    <option value="smallbuds">Small Buds</option>
+                    <option value="smallbuds">Small Friends</option>
                     <option value="hash">Hash</option>
                     <option value="moonrocks">Moonrocks</option>
                     <option value="andere">Andere</option>
@@ -1093,7 +1196,7 @@ const AbpackVerwaltung = () => {
                     className="w-full p-2 border border-gray-300 rounded-lg"
                   >
                     <option value="blueten">Blüten</option>
-                    <option value="smallbuds">Small Buds</option>
+                    <option value="smallbuds">Small Friends</option>
                     <option value="hash">Hash</option>
                     <option value="extracts">Extracts</option>
                     <option value="moonrocks">Moonrocks</option>
@@ -1322,47 +1425,37 @@ const AbpackVerwaltung = () => {
               <h2 className="text-lg sm:text-xl font-bold">Alle Aufträge</h2>
               <div className="flex items-center gap-2">
                 <select
+                  id="exportZeitraum"
                   value={orderStatusFilter}
                   onChange={(e) => setOrderStatusFilter(e.target.value as any)}
                   className="px-2 py-1 border rounded text-xs sm:text-sm"
                 >
-                  <option value="all">Alle</option>
+                  <option value="all">Alle Status</option>
                   <option value="offen">Offen</option>
                   <option value="in_bearbeitung">In Bearbeitung</option>
                   <option value="fertig">Fertig</option>
                 </select>
-                <select
-                  value={orderDateRange}
-                  onChange={(e) => setOrderDateRange(e.target.value as any)}
-                  className="px-2 py-1 border rounded text-xs sm:text-sm"
-                >
-                  <option value="all">Alle</option>
-                  <option value="today">Heute</option>
-                  <option value="7d">7 Tage</option>
-                  <option value="30d">30 Tage</option>
-                </select>
                 <div className="flex items-center gap-1">
-                  <select
-                    id="exportZeitraum"
-                    className="px-2 py-1 border rounded text-xs sm:text-sm bg-gray-50"
-                    defaultValue="all"
-                  >
-                    <option value="heute">Heute</option>
-                    <option value="7d">7 Tage</option>
-                    <option value="30d">30 Tage</option>
-                    <option value="90d">90 Tage</option>
-                    <option value="all">Alle</option>
-                  </select>
-                  <button
-                    onClick={() => {
-                      const select = document.getElementById('exportZeitraum') as HTMLSelectElement;
-                      exportOrders(select.value as 'heute' | '7d' | '30d' | '90d' | 'all');
-                    }}
-                    className="px-2 py-1 bg-green-600 text-white rounded text-xs sm:text-sm hover:bg-green-700"
-                  >
-                    CSV Export
-                  </button>
+                  <input
+                    type="date"
+                    value={orderDateFrom}
+                    onChange={(e) => setOrderDateFrom(e.target.value)}
+                    className="px-2 py-1 border rounded text-xs sm:text-sm"
+                  />
+                  <span className="text-gray-500 text-xs">-</span>
+                  <input
+                    type="date"
+                    value={orderDateTo}
+                    onChange={(e) => setOrderDateTo(e.target.value)}
+                    className="px-2 py-1 border rounded text-xs sm:text-sm"
+                  />
                 </div>
+                <button
+                  onClick={() => exportOrders()}
+                  className="px-2 py-1 bg-green-600 text-white rounded text-xs sm:text-sm hover:bg-green-700"
+                >
+                  Excel Export
+                </button>
               </div>
             </div>
 
@@ -1494,7 +1587,18 @@ const AbpackVerwaltung = () => {
         {activeTab === 'stock' && (
           <div>
             <div className="mb-6">
-              <h2 className="text-xl font-bold mb-4">Aktueller Bestand</h2>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Aktueller Bestand</h2>
+                {canManageProducts && (
+                  <button
+                    onClick={openAddProductModal}
+                    className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                  >
+                    <Plus size={18} />
+                    <span className="hidden sm:inline">Produkt hinzufügen</span>
+                  </button>
+                )}
+              </div>
               <div className="flex gap-4 flex-wrap">
                 <input
                   type="text"
@@ -1530,16 +1634,17 @@ const AbpackVerwaltung = () => {
                         </span>
                       </h3>
                     </div>
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
+                    <div>
+                      <table className="w-full table-fixed">
                         <thead className="bg-gray-50">
                           <tr>
-                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Name</th>
-                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Hersteller</th>
-                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Bestand (g)</th>
-                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Zuletzt geändert von</th>
-                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Zuletzt geändert am</th>
-                            <th className="px-4 py-2 text-left text-sm font-medium text-gray-700">Status</th>
+                            <th className={`px-2 py-2 text-left text-xs sm:text-sm font-medium text-gray-700 ${canManageProducts ? 'w-[22%]' : 'w-[25%]'}`}>Name</th>
+                            <th className={`px-2 py-2 text-left text-xs sm:text-sm font-medium text-gray-700 ${canManageProducts ? 'w-[25%]' : 'w-[30%]'}`}>Hersteller</th>
+                            <th className={`px-2 py-2 text-right text-xs sm:text-sm font-medium text-gray-700 ${canManageProducts ? 'w-[15%]' : 'w-[20%]'}`}>Bestand</th>
+                            <th className={`px-2 py-2 text-center text-xs sm:text-sm font-medium text-gray-700 ${canManageProducts ? 'w-[18%]' : 'w-[25%]'}`}>Status</th>
+                            {canManageProducts && (
+                              <th className="px-2 py-2 text-center text-xs sm:text-sm font-medium text-gray-700 w-[20%]">Aktionen</th>
+                            )}
                           </tr>
                         </thead>
                         <tbody className="divide-y">
@@ -1551,22 +1656,38 @@ const AbpackVerwaltung = () => {
                                 status === 'low' ? 'bg-yellow-50' :
                                 s.menge > 0 ? 'bg-green-50' : ''
                               }>
-                                <td className="px-4 py-3 text-sm font-medium">{s.name}</td>
-                                <td className="px-4 py-3 text-sm">{s.hersteller || '-'}</td>
-                                <td className="px-4 py-3 text-sm font-bold">{s.menge}g</td>
-                                <td className="px-4 py-3 text-sm">
-                                  <span className="font-medium">{s.lastUpdatedBy || '-'}</span>
-                                </td>
-                                <td className="px-4 py-3 text-xs text-gray-600">{s.lastUpdatedAt || '-'}</td>
-                                <td className="px-4 py-3">
+                                <td className="px-2 py-2 text-xs sm:text-sm font-medium truncate">{s.name}</td>
+                                <td className="px-2 py-2 text-xs sm:text-sm truncate">{s.hersteller || '-'}</td>
+                                <td className="px-2 py-2 text-xs sm:text-sm font-bold text-right">{s.menge}g</td>
+                                <td className="px-2 py-2 text-center">
                                   {status === 'empty' ? (
-                                    <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">Leer</span>
+                                    <span className="px-1.5 py-0.5 bg-red-100 text-red-800 rounded text-xs font-medium">Leer</span>
                                   ) : status === 'low' ? (
-                                    <span className="px-2 py-1 bg-yellow-100 text-yellow-800 rounded text-xs font-medium">Niedrig</span>
+                                    <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-800 rounded text-xs font-medium">Niedrig</span>
                                   ) : (
-                                    <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs font-medium">OK</span>
+                                    <span className="px-1.5 py-0.5 bg-green-100 text-green-800 rounded text-xs font-medium">OK</span>
                                   )}
                                 </td>
+                                {canManageProducts && (
+                                  <td className="px-2 py-2 text-center">
+                                    <div className="flex justify-center gap-1">
+                                      <button
+                                        onClick={() => openEditProductModal(s)}
+                                        className="p-1.5 text-blue-600 hover:bg-blue-100 rounded"
+                                        title="Bearbeiten"
+                                      >
+                                        <Pencil size={14} />
+                                      </button>
+                                      <button
+                                        onClick={() => handleDeleteProduct(s)}
+                                        className="p-1.5 text-red-600 hover:bg-red-100 rounded"
+                                        title="Löschen"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                )}
                               </tr>
                             );
                           })}
@@ -1581,7 +1702,7 @@ const AbpackVerwaltung = () => {
         )}
 
         {/* Analyse */}
-        {activeTab === 'analyse' && (() => {
+        {activeTab === 'analyse' && canManageProducts && (() => {
           // Zeitraum-Cutoff berechnen
           const zeitraumTage = analyseZeitraum === 'heute' ? 0 : analyseZeitraum === '7d' ? 7 : analyseZeitraum === '30d' ? 30 : analyseZeitraum === '90d' ? 90 : analyseZeitraum === '365d' ? 365 : Infinity;
           const cutoff = (() => {
@@ -2032,6 +2153,117 @@ const AbpackVerwaltung = () => {
           );
         })()}
       </div>
+      
+      {/* Produkt hinzufügen/bearbeiten Modal (nur für Admin/Dev) */}
+      {showProductModal && canManageProducts && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md">
+            <div className="flex justify-between items-center px-6 py-4 border-b">
+              <h3 className="text-lg font-bold">
+                {editingProduct ? 'Produkt bearbeiten' : 'Neues Produkt'}
+              </h3>
+              <button
+                onClick={() => setShowProductModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {!editingProduct && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Produkt-ID *
+                  </label>
+                  <input
+                    type="text"
+                    value={productForm.id}
+                    onChange={(e) => setProductForm({ ...productForm, id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="z.B. MJ3, H_NEW"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Eindeutige ID (wird automatisch in Großbuchstaben umgewandelt)</p>
+                </div>
+              )}
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Name *
+                </label>
+                <input
+                  type="text"
+                  value={productForm.name}
+                  onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="z.B. Meer Jane 3"
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Kategorie
+                </label>
+                <select
+                  value={productForm.category}
+                  onChange={(e) => setProductForm({ ...productForm, category: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="blueten">Blüten</option>
+                  <option value="smallbuds">Small Friends</option>
+                  <option value="hash">Hash</option>
+                  <option value="extracts">Extracts</option>
+                  <option value="moonrocks">Moonrocks</option>
+                  <option value="trim">420Mix</option>
+                  <option value="andere">Andere</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Hersteller / Lieferant
+                </label>
+                <input
+                  type="text"
+                  value={productForm.hersteller}
+                  onChange={(e) => setProductForm({ ...productForm, hersteller: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  placeholder="Optional"
+                />
+              </div>
+              
+              {!editingProduct && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Anfangsbestand (g)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={productForm.menge}
+                    onChange={(e) => setProductForm({ ...productForm, menge: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="0"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50">
+              <button
+                onClick={() => setShowProductModal(false)}
+                className="px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Abbrechen
+              </button>
+              <button
+                onClick={handleSaveProduct}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              >
+                {editingProduct ? 'Speichern' : 'Hinzufügen'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

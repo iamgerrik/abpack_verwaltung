@@ -124,6 +124,8 @@ const Login: React.FC<LoginProps> = ({ onLoginSuccess }) => {
               <p className="ml-4">claudio / claudio123</p>
               <p className="ml-4">gerrik / gerrik123</p>
               <p className="ml-4">martin / martin123</p>
+              <p className="ml-4">julia / julia123</p>
+              <p className="ml-4">eileen / eileen123</p>
               <p className="mt-2"><span className="font-medium">Admin:</span> cristian / cristian123</p>
               <p className="ml-4">debby / debby123</p>
             </div>

@@ -24,6 +24,7 @@ const initialStock = [
   { id: 'SB_BANANA', category: 'smallbuds', name: 'SB Banana', hersteller: '', menge: 0 },
   { id: 'SB_GSC', category: 'smallbuds', name: 'SB GSC', hersteller: '', menge: 0 },
   { id: 'SB_STRAWBERRY', category: 'smallbuds', name: 'SB Strawberry', hersteller: '', menge: 800 },
+  { id: 'SF', category: 'smallbuds', name: 'Small Friends', hersteller: '', menge: 0 },
   
   // HASH
   { id: 'H_SD', category: 'hash', name: 'Super Dry', hersteller: '', menge: 34 },
@@ -60,6 +61,7 @@ const initialStock = [
   { id: 'TRIM', category: 'trim', name: 'TRIM', hersteller: '', menge: 0 },
   { id: 'TRIM_NORMAL', category: 'trim', name: 'Trim', hersteller: '', menge: 2800 },
   { id: 'GREENHOUSE', category: 'trim', name: 'Greenhouse', hersteller: '', menge: 0 },
+  { id: '420MIX', category: 'trim', name: '420Mix', hersteller: '', menge: 0 },
   
   // ANDERE
   { id: 'FILTER', category: 'andere', name: 'FILTER (Stk.)', hersteller: '', menge: 77600 },
