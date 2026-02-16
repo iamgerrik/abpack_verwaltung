@@ -13,6 +13,11 @@ Das Abpack-Verwaltungssystem ist eine moderne Web-App zur Verwaltung und Analyse
 - Mobile-optimierte Ansicht
 - Benutzerverwaltung und Login
 
+## Workflow der App
+
+![Workflow der App](graphics/workflow.png)
+
+
 ## Technologiestack
 - **Frontend:** React + TypeScript, Vite
 - **Backend:** Node.js, tRPC, Express
@@ -94,8 +99,3 @@ const canManageProducts = user?.role === 'admin' || user?.role === 'dev';
 ### 5. Export-Funktion
 
 Aufträge können als Excel-Datei exportiert werden. Der Zeitraum wird über zwei Datumsfelder gefiltert.
-
-
-## Workflow der App
-
-![Workflow der App](graphics/workflow.png)
