@@ -90,7 +90,24 @@ const AbpackVerwaltung = () => {
     },
   });
   const updateOrderStatusMutation = trpc.abpack.updateOrderStatus.useMutation({
-    onSuccess: () => {
+    // Optimistic update: immediately update orders in cache so UI reflects status change
+    onMutate: async ({ orderId, status }) => {
+      await queryClient.cancelQueries({ queryKey: [['abpack', 'getOrders']] });
+      const previous = queryClient.getQueryData<any>([['abpack', 'getOrders']]);
+
+      queryClient.setQueryData([['abpack', 'getOrders']], (oldData: any) => {
+        if (!oldData) return oldData;
+        return oldData.map((o: any) => (o.id === orderId ? { ...o, status } : o));
+      });
+
+      return { previous };
+    },
+    onError: (_err, _vars, context: any) => {
+      if (context?.previous) {
+        queryClient.setQueryData([['abpack', 'getOrders']], context.previous);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: [['abpack', 'getOrders']] });
     },
   });
@@ -728,13 +745,6 @@ const AbpackVerwaltung = () => {
     return acc;
   }, {});
 
-  // Status-Priorität: offen=0, in_bearbeitung=1, fertig=2
-  const statusPriority: Record<string, number> = {
-    'offen': 0,
-    'in_bearbeitung': 1,
-    'fertig': 2
-  };
-
   const filteredOrders = visibleOrders
     .filter((o) => (orderStatusFilter === 'all' ? true : o.status === orderStatusFilter))
     .filter((o) => {
@@ -747,7 +757,7 @@ const AbpackVerwaltung = () => {
       
       return ts >= fromTs && ts <= toTs;
     })
-    .sort((a, b) => (statusPriority[a.status] ?? 99) - (statusPriority[b.status] ?? 99));
+    ;
 
   // Export-Funktion: Alle Aufträge aus DB (nicht nur gefilterte/sichtbare)
   const exportOrders = () => {
