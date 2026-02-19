@@ -508,8 +508,10 @@ const AbpackVerwaltung = () => {
     if (!order) return;
 
     try {
-      // Bei offenen Aufträgen: Bestand wiederherstellen
-      if (order.status === 'offen') {
+      // Wenn der Auftrag nicht 'fertig' ist (z.B. 'offen' oder 'in_bearbeitung'),
+      // dann wurde die Menge beim Erstellen bereits vom Bestand abgezogen und
+      // muss bei Löschung wieder gutgeschrieben werden.
+      if (order.status !== 'fertig') {
         const currentStock = stock.find(s => s.id === order.strain);
         const currentMenge = currentStock ? currentStock.menge : 0;
         await updateStockMengeMutation.mutateAsync({
@@ -719,22 +721,23 @@ const AbpackVerwaltung = () => {
 
   // Funktion zur Bestimmung der Display-Kategorie basierend auf Name/DB-Kategorie
   const getDisplayCategory = (item: StockItem): string => {
-    const nameLower = item.name.toLowerCase();
-    
-    // Name-basierte Zuordnung (hat Priorität)
-    if (nameLower.includes('herbal')) return 'herbal';
-    if (nameLower.includes('filter')) return 'filter';
-    if (nameLower.includes('crumble')) return 'crumble';
-    if (nameLower.includes('superdry') || nameLower.startsWith('sd ') || nameLower === 'sd') return 'superdry';
-    
-    // DB-Kategorie basierte Zuordnung
+    const nameLower = item.name.toLowerCase().trim();
+
+    // Prefer DB category for main categories to avoid misclassification by name
     if (item.category === 'blueten') return 'blueten';
     if (item.category === 'moonrocks') return 'moonrocks';
     if (item.category === 'smallbuds') return 'smallbuds';
     if (item.category === 'trim') return 'trim';
     if (item.category === 'hash') return 'hash';
     if (item.category === 'extracts') return 'extracts';
-    
+
+    // Name-basierte Zuordnung als Fallback für spezielle Labels
+    const nameNoSpace = nameLower.replace(/\s+/g, '');
+    if (nameNoSpace.includes('herbal')) return 'herbal';
+    if (nameNoSpace.includes('filter')) return 'filter';
+    if (nameNoSpace.includes('crumble')) return 'crumble';
+    if (nameNoSpace.includes('superdry') || nameLower.startsWith('sd ') || nameLower === 'sd') return 'superdry';
+
     return 'andere';
   };
 
