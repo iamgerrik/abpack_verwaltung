@@ -57,6 +57,14 @@ const AbpackVerwaltung = () => {
   
   // Prüfe ob User Admin oder Dev ist
   const canManageProducts = user?.role === 'admin' || user?.role === 'dev';
+
+  // Beschränkte Benutzer, die nur Zugriff auf die Aufträge-Seite haben sollen
+  const limitedUsers = ['gio', 'claudio'];
+  const isLimitedUser = !!user && limitedUsers.includes(user.username);
+
+  React.useEffect(() => {
+    if (isLimitedUser) setActiveTab('orders');
+  }, [isLimitedUser]);
   
   const handleLogout = () => {
     logout();
@@ -980,67 +988,82 @@ const AbpackVerwaltung = () => {
 
         {/* Navigation */}
         <div className="flex gap-2 mb-6 flex-wrap">
-          <button
-            onClick={() => setActiveTab('dashboard')}
-            className={`px-4 py-2 rounded-lg font-medium ${
-              activeTab === 'dashboard'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            Dashboard
-          </button>
-          <button
-            onClick={() => setActiveTab('wareneingang')}
-            className={`px-4 py-2 rounded-lg font-medium ${
-              activeTab === 'wareneingang'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            Wareneingang
-          </button>
-          <button
-            onClick={() => setActiveTab('newOrder')}
-            className={`px-4 py-2 rounded-lg font-medium ${
-              activeTab === 'newOrder'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            Neuer Auftrag
-          </button>
-          <button
-            onClick={() => setActiveTab('orders')}
-            className={`px-4 py-2 rounded-lg font-medium ${
-              activeTab === 'orders'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            Aufträge ({orders.filter((o: Order) => o.status !== 'fertig').length})
-          </button>
-          <button
-            onClick={() => setActiveTab('stock')}
-            className={`px-4 py-2 rounded-lg font-medium ${
-              activeTab === 'stock'
-                ? 'bg-blue-600 text-white'
-                : 'bg-white text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            Bestand
-          </button>
-          {canManageProducts && (
+          {isLimitedUser ? (
             <button
-              onClick={() => setActiveTab('analyse')}
+              onClick={() => setActiveTab('orders')}
               className={`px-4 py-2 rounded-lg font-medium ${
-                activeTab === 'analyse'
+                activeTab === 'orders'
                   ? 'bg-blue-600 text-white'
                   : 'bg-white text-gray-700 hover:bg-gray-100'
               }`}
             >
-              <span className="flex items-center gap-2"><BarChart3 size={16} /> Analyse</span>
+              Aufträge ({orders.filter((o: Order) => o.status !== 'fertig').length})
             </button>
+          ) : (
+            <>
+              <button
+                onClick={() => setActiveTab('dashboard')}
+                className={`px-4 py-2 rounded-lg font-medium ${
+                  activeTab === 'dashboard'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Dashboard
+              </button>
+              <button
+                onClick={() => setActiveTab('wareneingang')}
+                className={`px-4 py-2 rounded-lg font-medium ${
+                  activeTab === 'wareneingang'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Wareneingang
+              </button>
+              <button
+                onClick={() => setActiveTab('newOrder')}
+                className={`px-4 py-2 rounded-lg font-medium ${
+                  activeTab === 'newOrder'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Neuer Auftrag
+              </button>
+              <button
+                onClick={() => setActiveTab('orders')}
+                className={`px-4 py-2 rounded-lg font-medium ${
+                  activeTab === 'orders'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Aufträge ({orders.filter((o: Order) => o.status !== 'fertig').length})
+              </button>
+              <button
+                onClick={() => setActiveTab('stock')}
+                className={`px-4 py-2 rounded-lg font-medium ${
+                  activeTab === 'stock'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Bestand
+              </button>
+              {canManageProducts && (
+                <button
+                  onClick={() => setActiveTab('analyse')}
+                  className={`px-4 py-2 rounded-lg font-medium ${
+                    activeTab === 'analyse'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-gray-700 hover:bg-gray-100'
+                  }`}
+                >
+                  <span className="flex items-center gap-2"><BarChart3 size={16} /> Analyse</span>
+                </button>
+              )}
+            </>
           )}
         </div>
 
@@ -1086,63 +1109,7 @@ const AbpackVerwaltung = () => {
               </div>
             </div>
 
-            {/* Aktuelle Aufträge */}
-            <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <h2 className="text-xl font-bold mb-4">Aktuelle Aufträge</h2>
-              {visibleOrders.filter((o: Order) => o.status !== 'fertig').length === 0 ? (
-                <p className="text-gray-500">Keine aktiven Aufträge</p>
-              ) : (
-                <div className="space-y-3">
-                  {visibleOrders.filter((o: Order) => o.status !== 'fertig').map((order: Order) => (
-                    <div key={order.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                      <div className="flex-1">
-                        <p className="font-medium">{order.strainName}</p>
-                        <div className="text-sm text-gray-600">
-                          {(() => {
-                            const grouped: Record<string, OrderPackage[]> = order.packages.reduce((acc: Record<string, OrderPackage[]>, p: OrderPackage) => {
-                              const key = (p.packagingType || 'bag');
-                              if (!acc[key]) acc[key] = [];
-                              acc[key].push(p);
-                              return acc;
-                            }, {});
-
-                            return Object.entries(grouped).map(([type, pkgs]) => (
-                              <div key={type} className="mb-1">
-                                <div className="font-medium lowercase">{type}:</div>
-                                <div className="ml-2">
-                                  {pkgs.map((p, i) => (
-                                    <div key={i} className="text-gray-700">{p.quantity}x&nbsp;&nbsp;{p.size}g</div>
-                                  ))}
-                                </div>
-                              </div>
-                            ));
-                          })()}
-                        </div>
-                        <p className="text-xs text-gray-500">Gesamt: {order.neededAmount}g</p>
-                      </div>
-                      <div className="flex gap-2">
-                        {order.status === 'offen' && (
-                          <button
-                            onClick={() => updateOrderStatus(order.id, 'in_bearbeitung')}
-                            className="px-3 py-1 bg-blue-600 text-white rounded text-sm"
-                          >
-                            Starten
-                          </button>
-                        )}
-                        {order.status === 'in_bearbeitung' && (
-                          <button
-                            onClick={() => updateOrderStatus(order.id, 'fertig')}
-                            className="px-3 py-1 bg-green-600 text-white rounded text-sm"
-                          >
-                            Fertig
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            {/* Aktuelle Aufträge: entfernt aus Dashboard auf Nutzerwunsch */}
 
             {/* Bestandswarnungen */}
             <div className="bg-white rounded-lg shadow p-6">
