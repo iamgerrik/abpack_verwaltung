@@ -270,9 +270,10 @@ const AbpackVerwaltung = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'offen' | 'in_bearbeitung' | 'fertig'>('all');
   const [orderSearch, setOrderSearch] = useState<string>('');
-  // Datums-Filter mit Von/Bis
-  const [orderDateFrom, setOrderDateFrom] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [orderDateTo, setOrderDateTo] = useState<string>(new Date().toISOString().split('T')[0]);
+  // Datums-Filter mit Von/Bis (standardmäßig inaktiv; leer = keine Zeit-Filterung)
+  // Wenn der Nutzer ein Datum setzt, wirkt der Filter nur dann (primär für Exportzwecke)
+  const [orderDateFrom, setOrderDateFrom] = useState<string>('');
+  const [orderDateTo, setOrderDateTo] = useState<string>('');
   
   // Analyse-Filter
   const [analyseZeitraum, setAnalyseZeitraum] = useState<'heute' | '7d' | '30d' | '90d' | '365d' | 'all'>('30d');
