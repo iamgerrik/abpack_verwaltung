@@ -235,6 +235,31 @@ const AbpackVerwaltung = () => {
     hersteller: typeof s.hersteller === 'string' ? s.hersteller : '',
     menge: typeof s.menge === 'string' ? parseFloat(s.menge) : (s.menge ?? 0),
   }));
+
+  // Aggregated product: "Small Friends" under 'blueten' should show
+  // the total amount of all items in category 'smallbuds'. This creates
+  // a virtual product inserted into the displayed stock list (does not
+  // modify the real DB entries).
+  const smallBudsTotal = stock
+    .filter((s: StockItem) => s.category === 'smallbuds')
+    .reduce((sum, s) => sum + (s.menge || 0), 0);
+
+  const aggregatedSmallFriends: StockItem = {
+    id: 'SF_AGG',
+    category: 'blueten',
+    name: 'Small Friends',
+    hersteller: '',
+    menge: smallBudsTotal,
+  };
+
+  // Create a display array that includes the aggregated product if not already
+  // present as a real product in the DB under 'blueten'. This ensures the
+  // UI shows the combined amount while keeping DB-backed items unchanged.
+  const displayStock: StockItem[] = (() => {
+    const existsInBlueten = stock.some(s => s.category === 'blueten' && s.name.toLowerCase().includes('small friends'));
+    if (existsInBlueten) return stock; // don't duplicate if real product exists
+    return [aggregatedSmallFriends, ...stock];
+  })();
   
   const orders: Order[] = (ordersQuery.data ?? []).map(o => ({
     id: o.id,
@@ -336,8 +361,10 @@ const AbpackVerwaltung = () => {
 
   // Hole verfügbare Sorten nach Kategorie
   const getAvailableStrains = (category: string): StockItem[] => {
-    if (category === 'all') return stock;
-    return stock.filter((s: StockItem) => s.category === category);
+    // Use displayStock (includes aggregated virtual products) so aggregated
+    // "Small Friends" appears under 'blueten' when selecting a strain.
+    if (category === 'all') return displayStock;
+    return displayStock.filter((s: StockItem) => s.category === category);
   };
 
   // Erstelle neuen Auftrag
@@ -352,8 +379,8 @@ const AbpackVerwaltung = () => {
       return;
     }
 
-    const selectedStock = stock.find(s => s.id === newOrder.strain);
-    
+    const selectedStock = displayStock.find(s => s.id === newOrder.strain) || stock.find(s => s.id === newOrder.strain);
+
     if (!selectedStock) {
       alert('Sorte nicht gefunden!');
       return;
@@ -381,11 +408,34 @@ const AbpackVerwaltung = () => {
         neededAmount: totalNeededAmount,
       });
 
-      // Bestand in DB reduzieren
-      await updateStockMengeMutation.mutateAsync({
-        stockId: newOrder.strain,
-        newMenge: availableAmount - totalNeededAmount,
-      });
+      // Wenn das ausgewählte Produkt das aggregierte "Small Friends" ist,
+      // verteile die Belastung gleichmäßig auf alle Produkte der Kategorie
+      // 'smallbuds'. Andernfalls reduziere nur das ausgewählte Produkt.
+      if (newOrder.strain === 'SF_AGG' || (selectedStock.name.toLowerCase().includes('small friends') && selectedStock.category === 'blueten')) {
+        const smallBuds = stock.filter(s => s.category === 'smallbuds');
+        if (smallBuds.length === 0) {
+          alert('Keine Small Friends / smallbuds Produkte zum Belasten gefunden!');
+        } else {
+          const updates: Array<Promise<any>> = [];
+          // Verteile die Menge gerecht (mit 0.1g Genauigkeit)
+          let remaining = totalNeededAmount;
+          for (let i = 0; i < smallBuds.length; i++) {
+            const remainingCount = smallBuds.length - i;
+            const share = Math.round((remaining / remainingCount) * 10) / 10; // eine Dezimalstelle
+            remaining = Math.round((remaining - share) * 10) / 10;
+            const current = smallBuds[i].menge || 0;
+            const newMenge = Math.max(0, Math.round((current - share) * 10) / 10);
+            updates.push(updateStockMengeMutation.mutateAsync({ stockId: smallBuds[i].id, newMenge }));
+          }
+          await Promise.all(updates);
+        }
+      } else {
+        // Bestand in DB reduzieren (einzelnes Produkt)
+        await updateStockMengeMutation.mutateAsync({
+          stockId: newOrder.strain,
+          newMenge: Math.round((availableAmount - totalNeededAmount) * 10) / 10,
+        });
+      }
 
       alert('Auftrag erfolgreich erstellt!');
 
@@ -512,12 +562,31 @@ const AbpackVerwaltung = () => {
       // dann wurde die Menge beim Erstellen bereits vom Bestand abgezogen und
       // muss bei Löschung wieder gutgeschrieben werden.
       if (order.status !== 'fertig') {
-        const currentStock = stock.find(s => s.id === order.strain);
-        const currentMenge = currentStock ? currentStock.menge : 0;
-        await updateStockMengeMutation.mutateAsync({
-          stockId: order.strain,
-          newMenge: currentMenge + order.neededAmount,
-        });
+        // Wenn es sich um den aggregierten "Small Friends" Auftrag handelt,
+        // verteile die Rückbuchung gleichmäßig auf alle 'smallbuds' Produkte.
+        if (order.strain === 'SF_AGG' || (order.strainName && order.strainName.toLowerCase().includes('small friends') && order.categoryName === 'blueten')) {
+          const smallBuds = stock.filter(s => s.category === 'smallbuds');
+          if (smallBuds.length > 0) {
+            const updates: Array<Promise<any>> = [];
+            let remaining = order.neededAmount || 0;
+            for (let i = 0; i < smallBuds.length; i++) {
+              const remainingCount = smallBuds.length - i;
+              const share = Math.round((remaining / remainingCount) * 10) / 10;
+              remaining = Math.round((remaining - share) * 10) / 10;
+              const current = smallBuds[i].menge || 0;
+              const newMenge = Math.round((current + share) * 10) / 10;
+              updates.push(updateStockMengeMutation.mutateAsync({ stockId: smallBuds[i].id, newMenge }));
+            }
+            await Promise.all(updates);
+          }
+        } else {
+          const currentStock = stock.find(s => s.id === order.strain);
+          const currentMenge = currentStock ? currentStock.menge : 0;
+          await updateStockMengeMutation.mutateAsync({
+            stockId: order.strain,
+            newMenge: currentMenge + order.neededAmount,
+          });
+        }
       }
       
       // Auftrag löschen
@@ -741,8 +810,8 @@ const AbpackVerwaltung = () => {
     return 'andere';
   };
 
-  // Gruppiere Stock nach Display-Kategorien
-  const groupedStock = stock.reduce((acc: { [key: string]: StockItem[] }, item: StockItem) => {
+  // Gruppiere Stock nach Display-Kategorien (benutze displayStock mit Aggregaten)
+  const groupedStock = displayStock.reduce((acc: { [key: string]: StockItem[] }, item: StockItem) => {
     const displayCat = getDisplayCategory(item);
     if (!acc[displayCat]) acc[displayCat] = [];
     acc[displayCat].push(item);
@@ -1341,9 +1410,9 @@ const AbpackVerwaltung = () => {
               {newOrder.strain && (
                 <div className="mb-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
                   <p className="text-sm text-gray-600">Ausgewählte Sorte:</p>
-                  <p className="font-bold text-lg">{stock.find(s => s.id === newOrder.strain)?.name || '-'}</p>
+                  <p className="font-bold text-lg">{(displayStock.find(s => s.id === newOrder.strain) || stock.find(s => s.id === newOrder.strain))?.name || '-'}</p>
                   <p className="text-sm text-gray-500">
-                    Verfügbar: {stock.find(s => s.id === newOrder.strain)?.menge || 0}g
+                    Verfügbar: {(displayStock.find(s => s.id === newOrder.strain) || stock.find(s => s.id === newOrder.strain))?.menge || 0}g
                   </p>
                 </div>
               )}
@@ -1396,16 +1465,16 @@ const AbpackVerwaltung = () => {
                       </p>
                       <p className="text-sm text-blue-900 mt-1">
                         <strong>Verfügbar:</strong> {
-                          stock.find(s => s.id === newOrder.strain)?.menge || 0
+                          (displayStock.find(s => s.id === newOrder.strain) || stock.find(s => s.id === newOrder.strain))?.menge || 0
                         }g
                       </p>
                       <p className={`text-sm mt-1 font-medium ${
-                        (stock.find(s => s.id === newOrder.strain)?.menge || 0) >= 
+                        ((displayStock.find(s => s.id === newOrder.strain) || stock.find(s => s.id === newOrder.strain))?.menge || 0) >= 
                         newOrder.packages.reduce((sum, pkg: OrderPackage) => sum + calculateNeededAmount(pkg.size, pkg.quantity), 0)
                           ? 'text-green-700'
                           : 'text-red-700'
                       }`}>
-                        {(stock.find(s => s.id === newOrder.strain)?.menge || 0) >= 
+                        {((displayStock.find(s => s.id === newOrder.strain) || stock.find(s => s.id === newOrder.strain))?.menge || 0) >= 
                         newOrder.packages.reduce((sum, pkg: OrderPackage) => sum + calculateNeededAmount(pkg.size, pkg.quantity), 0)
                           ? '✓ Ausreichend Bestand'
                           : '⚠ Nicht genügend Bestand'}
