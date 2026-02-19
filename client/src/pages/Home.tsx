@@ -252,13 +252,30 @@ const AbpackVerwaltung = () => {
     menge: smallBudsTotal,
   };
 
+  // Aggregated product: "420 Mix" under 'blueten' aggregates all 'trim' items
+  const trimTotal = stock
+    .filter((s: StockItem) => s.category === 'trim')
+    .reduce((sum, s) => sum + (s.menge || 0), 0);
+
+  const aggregated420Mix: StockItem = {
+    id: 'TR_AGG',
+    category: 'blueten',
+    name: '420 Mix',
+    hersteller: '',
+    menge: trimTotal,
+  };
+
   // Create a display array that includes the aggregated product if not already
   // present as a real product in the DB under 'blueten'. This ensures the
   // UI shows the combined amount while keeping DB-backed items unchanged.
   const displayStock: StockItem[] = (() => {
-    const existsInBlueten = stock.some(s => s.category === 'blueten' && s.name.toLowerCase().includes('small friends'));
-    if (existsInBlueten) return stock; // don't duplicate if real product exists
-    return [aggregatedSmallFriends, ...stock];
+    const existsSFInBlueten = stock.some(s => s.category === 'blueten' && s.name.toLowerCase().includes('small friends'));
+    const exists420InBlueten = stock.some(s => s.category === 'blueten' && s.name.toLowerCase().includes('420 mix'));
+
+    let arr = [...stock];
+    if (!existsSFInBlueten) arr = [aggregatedSmallFriends, ...arr];
+    if (!exists420InBlueten) arr = [aggregated420Mix, ...arr];
+    return arr;
   })();
   
   const orders: Order[] = (ordersQuery.data ?? []).map(o => ({
@@ -408,24 +425,36 @@ const AbpackVerwaltung = () => {
         neededAmount: totalNeededAmount,
       });
 
-      // Wenn das ausgewählte Produkt das aggregierte "Small Friends" ist,
-      // verteile die Belastung gleichmäßig auf alle Produkte der Kategorie
-      // 'smallbuds'. Andernfalls reduziere nur das ausgewählte Produkt.
-      if (newOrder.strain === 'SF_AGG' || (selectedStock.name.toLowerCase().includes('small friends') && selectedStock.category === 'blueten')) {
-        const smallBuds = stock.filter(s => s.category === 'smallbuds');
-        if (smallBuds.length === 0) {
-          alert('Keine Small Friends / smallbuds Produkte zum Belasten gefunden!');
+      // Wenn das ausgewählte Produkt ein Aggregat ist (SF_AGG oder TR_AGG),
+      // verteile die Belastung gleichmäßig auf alle Produkte der jeweiligen
+      // Quell-Kategorie ('smallbuds' bzw. 'trim'). Andernfalls reduziere nur das ausgewählte Produkt.
+      const aggregateMap: { [key: string]: string } = { SF_AGG: 'smallbuds', TR_AGG: 'trim' };
+      const lowerName = selectedStock.name.toLowerCase();
+      let targetCategory: string | null = null;
+
+      if (aggregateMap[newOrder.strain]) {
+        targetCategory = aggregateMap[newOrder.strain];
+      } else if (lowerName.includes('small friends') && selectedStock.category === 'blueten') {
+        targetCategory = 'smallbuds';
+      } else if ((lowerName.includes('420 mix') || lowerName.includes('420mix')) && selectedStock.category === 'blueten') {
+        targetCategory = 'trim';
+      }
+
+      if (targetCategory) {
+        // Nur Produkte mit positivem Bestand verwenden; leere Produkte werden übersprungen.
+        let targets = stock.filter(s => s.category === targetCategory && (s.menge || 0) > 0);
+        if (targets.length === 0) {
+          alert(`Keine Produkte mit positivem Bestand in Kategorie ${targetCategory} zum Belasten gefunden!`);
         } else {
           const updates: Array<Promise<any>> = [];
-          // Verteile die Menge gerecht (mit 0.1g Genauigkeit)
           let remaining = totalNeededAmount;
-          for (let i = 0; i < smallBuds.length; i++) {
-            const remainingCount = smallBuds.length - i;
-            const share = Math.round((remaining / remainingCount) * 10) / 10; // eine Dezimalstelle
+          for (let i = 0; i < targets.length; i++) {
+            const remainingCount = targets.length - i;
+            const share = Math.round((remaining / remainingCount) * 10) / 10;
             remaining = Math.round((remaining - share) * 10) / 10;
-            const current = smallBuds[i].menge || 0;
+            const current = targets[i].menge || 0;
             const newMenge = Math.max(0, Math.round((current - share) * 10) / 10);
-            updates.push(updateStockMengeMutation.mutateAsync({ stockId: smallBuds[i].id, newMenge }));
+            updates.push(updateStockMengeMutation.mutateAsync({ stockId: targets[i].id, newMenge }));
           }
           await Promise.all(updates);
         }
@@ -564,18 +593,35 @@ const AbpackVerwaltung = () => {
       if (order.status !== 'fertig') {
         // Wenn es sich um den aggregierten "Small Friends" Auftrag handelt,
         // verteile die Rückbuchung gleichmäßig auf alle 'smallbuds' Produkte.
-        if (order.strain === 'SF_AGG' || (order.strainName && order.strainName.toLowerCase().includes('small friends') && order.categoryName === 'blueten')) {
-          const smallBuds = stock.filter(s => s.category === 'smallbuds');
-          if (smallBuds.length > 0) {
+        // Prüfe ob der Auftrag ein Aggregat (SF_AGG oder TR_AGG) ist und bestimme Quelle
+        const aggregateMap: { [key: string]: string } = { SF_AGG: 'smallbuds', TR_AGG: 'trim' };
+        const lowerName = (order.strainName || '').toLowerCase();
+        let returnCategory: string | null = null;
+
+        if (aggregateMap[order.strain]) {
+          returnCategory = aggregateMap[order.strain];
+        } else if (lowerName.includes('small friends') && order.categoryName === 'blueten') {
+          returnCategory = 'smallbuds';
+        } else if ((lowerName.includes('420 mix') || lowerName.includes('420mix')) && order.categoryName === 'blueten') {
+          returnCategory = 'trim';
+        }
+
+        if (returnCategory) {
+          // Prefer positive-stock targets for return; if none, fall back to all targets.
+          let targets = stock.filter(s => s.category === returnCategory && (s.menge || 0) > 0);
+          if (targets.length === 0) {
+            targets = stock.filter(s => s.category === returnCategory);
+          }
+          if (targets.length > 0) {
             const updates: Array<Promise<any>> = [];
             let remaining = order.neededAmount || 0;
-            for (let i = 0; i < smallBuds.length; i++) {
-              const remainingCount = smallBuds.length - i;
+            for (let i = 0; i < targets.length; i++) {
+              const remainingCount = targets.length - i;
               const share = Math.round((remaining / remainingCount) * 10) / 10;
               remaining = Math.round((remaining - share) * 10) / 10;
-              const current = smallBuds[i].menge || 0;
+              const current = targets[i].menge || 0;
               const newMenge = Math.round((current + share) * 10) / 10;
-              updates.push(updateStockMengeMutation.mutateAsync({ stockId: smallBuds[i].id, newMenge }));
+              updates.push(updateStockMengeMutation.mutateAsync({ stockId: targets[i].id, newMenge }));
             }
             await Promise.all(updates);
           }
@@ -1140,6 +1186,7 @@ const AbpackVerwaltung = () => {
                   >
                     <option value="blueten">Blüten</option>
                     <option value="smallbuds">Small Friends</option>
+                    <option value="trim">420Mix</option>
                     <option value="hash">Hash</option>
                     <option value="moonrocks">Moonrocks</option>
                     <option value="andere">Andere</option>
@@ -1280,6 +1327,7 @@ const AbpackVerwaltung = () => {
                   >
                     <option value="blueten">Blüten</option>
                     <option value="smallbuds">Small Friends</option>
+                    <option value="trim">420Mix</option>
                     <option value="hash">Hash</option>
                     <option value="extracts">Extracts</option>
                     <option value="moonrocks">Moonrocks</option>
