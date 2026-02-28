@@ -126,8 +126,3 @@ const canManageProducts = user?.role === 'admin' || user?.role === 'dev';
 ### 5. Export-Funktion
 
 Aufträge können als Excel-Datei exportiert werden. Der Zeitraum wird über zwei Datumsfelder gefiltert.
-
-
-## Workflow der App
-
-![Workflow der App](graphics/workflow.png)
