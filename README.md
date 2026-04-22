@@ -1,10 +1,12 @@
+> Built to replace manual, paper-based warehouse workflows and save ~1 full workday per week
+
 # 📦 Warehouse Tracking & Planning Tool
 
 A custom-built application to digitize and optimize warehouse and production workflows in a small e-commerce environment.
 
 ---
 
-## 🚀 Overview
+## Overview
 
 This project was created to replace inefficient, paper-based warehouse processes with a structured, data-driven system.
 
