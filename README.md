@@ -85,7 +85,7 @@ The solution was developed iteratively:
 
 ![Workflow](graphics/workflow.png)
 
-![Dashboard](./screenshots/dashboard.png)
+!(./screenshots/dashboard.png)
 
 ![Login](graphics/login.png)
 
