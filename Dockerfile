@@ -8,8 +8,9 @@ WORKDIR /app
 # pnpm installieren
 RUN npm install -g pnpm@10.29.3
 
-# package.json und pnpm-lock.yaml kopieren
+# package.json, lockfile und patches kopieren
 COPY package.json pnpm-lock.yaml ./
+COPY patches ./patches
 
 # Abhängigkeiten installieren
 RUN pnpm install --frozen-lockfile
@@ -32,17 +33,15 @@ WORKDIR /app
 # pnpm installieren
 RUN npm install -g pnpm@10.29.3
 
-# Production-Abhängigkeiten installieren (nur necessary dependencies)
+# Alle Abhängigkeiten installieren (vite wird zur Runtime benötigt)
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile --prod
+COPY patches ./patches
+RUN pnpm install --frozen-lockfile
 
 # Built files aus Stage 1 kopieren
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/client/index.html ./client/index.html
 COPY --from=builder /app/drizzle ./drizzle
-
-# Konfigurationsdateien
-COPY .env .env
 
 # Port exposieren (Node.js Backend Server)
 EXPOSE 3000
